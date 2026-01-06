@@ -14,11 +14,12 @@ Namespace UI.Hub
 
     Partial Public Class UiBridgeExternalEvent
 
-        Private _guidSummary As DataTable = Nothing
-        Private _guidDetail As DataTable = Nothing
+        Private _guidProject As DataTable = Nothing
+        Private _guidFamilyDetail As DataTable = Nothing
         Private _guidMode As Integer = 1
         Private _guidRunId As String = String.Empty
         Private _guidFamilyIndex As DataTable = Nothing
+        Private _guidIncludeFamily As Boolean = False
 
         Private NotInheritable Class TablePayload
             Public Property columns As List(Of String)
@@ -68,10 +69,11 @@ Namespace UI.Hub
             Dim includeAnnotation As Boolean = SafeBoolObj(GetProp(pd, "includeAnnotation"), False)
 
             Try
-                _guidSummary = Nothing
-                _guidDetail = Nothing
+                _guidProject = Nothing
+                _guidFamilyDetail = Nothing
                 _guidFamilyIndex = Nothing
                 _guidRunId = String.Empty
+                _guidIncludeFamily = includeFamily
                 _guidMode = mode
 
                 Dim res = GuidAuditService.Run(app, mode, rvtPaths, AddressOf ReportGuidProgress,
@@ -82,21 +84,22 @@ Namespace UI.Hub
                                                End Sub,
                                                includeFamily:=includeFamily,
                                                includeAnnotation:=includeAnnotation)
-                _guidSummary = res.Summary
-                _guidDetail = res.Detail
+                _guidProject = res.Project
+                _guidFamilyDetail = res.FamilyDetail
                 _guidFamilyIndex = res.FamilyIndex
                 _guidRunId = res.RunId
+                _guidIncludeFamily = res.IncludeFamily
 
-                Dim payloadSummary As TablePayload = ShapeTable(res.Summary, Nothing)
-                Dim payloadIndex As TablePayload = ShapeTable(res.FamilyIndex, Nothing)
+                Dim payloadProject As TablePayload = ShapeTable(res.Project, Nothing)
+                Dim payloadFamily As TablePayload = ShapeTable(res.FamilyIndex, Nothing)
 
                 Dim donePayload = New With {
                     .mode = mode,
                     .runId = _guidRunId,
-                    .includeFamily = includeFamily,
+                    .includeFamily = _guidIncludeFamily,
                     .includeAnnotation = includeAnnotation,
-                    .project = payloadSummary,
-                    .familyIndex = payloadIndex
+                    .project = payloadProject,
+                    .family = payloadFamily
                 }
 
                 Try
@@ -107,8 +110,8 @@ Namespace UI.Hub
                     SendToWeb("guid:error", New With {
                         .message = $"guid:done 전송 실패: {exSend.Message}",
                         .hResult = hr,
-                        .summaryRows = If(res.Summary Is Nothing, 0, res.Summary.Rows.Count),
-                        .detailRows = If(res.Detail Is Nothing, 0, res.Detail.Rows.Count),
+                        .projectRows = If(res.Project Is Nothing, 0, res.Project.Rows.Count),
+                        .familyDetailRows = If(res.FamilyDetail Is Nothing, 0, res.FamilyDetail.Rows.Count),
                         .familyIndexRows = If(res.FamilyIndex Is Nothing, 0, res.FamilyIndex.Rows.Count)
                     })
                 End Try
@@ -137,22 +140,21 @@ Namespace UI.Hub
             Dim target As DataTable = Nothing
             Dim sheet As String = "Result"
 
-            If which = "detail" Then
-                If _guidMode <> 2 OrElse _guidDetail Is Nothing OrElse _guidDetail.Rows.Count = 0 Then
-                    SendToWeb("guid:error", New With {.message = "저장할 상세 결과가 없습니다."})
+            If which = "family" Then
+                If Not _guidIncludeFamily OrElse _guidFamilyDetail Is Nothing OrElse _guidFamilyDetail.Rows.Count = 0 Then
+                    SendToWeb("guid:error", New With {.message = "저장할 Family 결과가 없습니다."})
                     Return
                 End If
 
-                ' Excel에는 RvtPath 제외
-                target = CloneWithoutColumn(_guidDetail, "RvtPath")
+                target = CloneWithoutColumn(_guidFamilyDetail, "RvtPath")
                 sheet = "FamilyParamDetail"
             Else
-                If _guidSummary Is Nothing OrElse _guidSummary.Rows.Count = 0 Then
-                    SendToWeb("guid:error", New With {.message = "저장할 결과가 없습니다."})
+                If _guidProject Is Nothing OrElse _guidProject.Rows.Count = 0 Then
+                    SendToWeb("guid:error", New With {.message = "저장할 Project 결과가 없습니다."})
                     Return
                 End If
-                target = _guidSummary
-                sheet = If(_guidMode = 1, "ProjectParams", "FamilySharedParams")
+                target = _guidProject
+                sheet = "ProjectParams"
             End If
 
             Try
@@ -178,17 +180,22 @@ Namespace UI.Hub
             Try : rvtPath = Convert.ToString(GetProp(pd, "rvtPath")) : Catch : rvtPath = "" : End Try
             Try : familyName = Convert.ToString(GetProp(pd, "familyName")) : Catch : familyName = "" : End Try
 
+            If Not _guidIncludeFamily Then
+                SendToWeb("guid:error", New With {.message = "Family 검토 결과가 없습니다.", .runId = runId})
+                Return
+            End If
+
             If String.IsNullOrWhiteSpace(runId) OrElse Not String.Equals(runId, _guidRunId, StringComparison.OrdinalIgnoreCase) Then
                 SendToWeb("guid:error", New With {.message = "이전 실행 결과 요청(runId mismatch)", .runId = runId})
                 Return
             End If
 
-            If _guidDetail Is Nothing OrElse _guidDetail.Rows.Count = 0 Then
+            If _guidFamilyDetail Is Nothing OrElse _guidFamilyDetail.Rows.Count = 0 Then
                 SendToWeb("guid:error", New With {.message = "가져올 패밀리 상세 결과가 없습니다.", .runId = runId})
                 Return
             End If
 
-            Dim filtered = FilterFamilyDetail(_guidDetail, rvtPath, familyName)
+            Dim filtered = FilterFamilyDetail(_guidFamilyDetail, rvtPath, familyName)
             Dim shaped As TablePayload = ShapeTable(filtered, Nothing)
 
             SendToWeb("guid:family-detail", New With {
