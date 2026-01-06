@@ -20,6 +20,11 @@ Namespace UI.Hub
         Private _guidRunId As String = String.Empty
         Private _guidFamilyIndex As DataTable = Nothing
 
+        Private NotInheritable Class TablePayload
+            Public Property columns As List(Of String)
+            Public Property rows As List(Of Object())
+        End Class
+
         ' -----------------------------
         ' 핸들러
         ' -----------------------------
@@ -82,8 +87,8 @@ Namespace UI.Hub
                 _guidFamilyIndex = res.FamilyIndex
                 _guidRunId = res.RunId
 
-                Dim payloadSummary = ShapeTable(res.Summary, Nothing)
-                Dim payloadIndex = ShapeTable(res.FamilyIndex, Nothing)
+                Dim payloadSummary As TablePayload = ShapeTable(res.Summary, Nothing)
+                Dim payloadIndex As TablePayload = ShapeTable(res.FamilyIndex, Nothing)
 
                 Dim donePayload = New With {
                     .mode = mode,
@@ -184,7 +189,7 @@ Namespace UI.Hub
             End If
 
             Dim filtered = FilterFamilyDetail(_guidDetail, rvtPath, familyName)
-            Dim shaped = ShapeTable(filtered, Nothing)
+            Dim shaped As TablePayload = ShapeTable(filtered, Nothing)
 
             SendToWeb("guid:family-detail", New With {
                 .runId = _guidRunId,
@@ -202,8 +207,8 @@ Namespace UI.Hub
             SendToWeb("guid:progress", New With {.pct = pct, .text = text})
         End Sub
 
-        Private Function ShapeTable(dt As DataTable, skipCols As HashSet(Of String)) As Object
-            If dt Is Nothing Then Return New With {.columns = New List(Of String)(), .rows = New List(Of Object())()}
+        Private Function ShapeTable(dt As DataTable, skipCols As HashSet(Of String)) As TablePayload
+            If dt Is Nothing Then Return New TablePayload With {.columns = New List(Of String)(), .rows = New List(Of Object())()}
 
             Dim cols As New List(Of String)()
             For Each c As DataColumn In dt.Columns
@@ -220,7 +225,7 @@ Namespace UI.Hub
                 rows.Add(arr)
             Next
 
-            Return New With {.columns = cols, .rows = rows}
+            Return New TablePayload With {.columns = cols, .rows = rows}
         End Function
 
         Private Function CloneWithoutColumn(dt As DataTable, columnName As String) As DataTable
