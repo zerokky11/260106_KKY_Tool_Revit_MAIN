@@ -1,0 +1,585 @@
+import { clear, div, toast, showExcelSavedDialog, chooseExcelMode } from '../core/dom.js';
+import { ProgressDialog } from '../core/progress.js';
+import { post, onHost } from '../core/bridge.js';
+
+const LS_RVTS = 'kky_guid_rvts';
+
+const HIDDEN_DETAIL_COLS = new Set(['RvtPath']);
+const EXCEL_PHASE_WEIGHT = { EXCEL_INIT: 0.05, EXCEL_WRITE: 0.85, EXCEL_SAVE: 0.08, AUTOFIT: 0.02, DONE: 1, ERROR: 1 };
+
+export function renderGuid(root) {
+    const target = root || document.getElementById('view-root') || document.getElementById('app');
+    clear(target);
+    const top = document.querySelector('#topbar-root .topbar') || document.querySelector('.topbar'); if (top) top.classList.add('hub-topbar');
+
+    const initialRvtList = loadRvtList();
+    const state = {
+        mode: 1,
+        rvtList: initialRvtList,
+        rvtChecked: new Set(initialRvtList),
+        summary: { columns: [], rows: [] },
+        detail: { columns: [], rows: [] },
+        activeTab: 'summary',
+        activeDocKey: '',
+        activeFamily: '',
+        busy: false
+    };
+    let lastExcelPct = 0;
+
+    const page = div('feature-shell guid-page');
+
+    // Header
+    const header = div('feature-header');
+    const heading = div('feature-heading');
+    heading.innerHTML = `
+      <span class="feature-kicker">GUID Audit</span>
+      <h2 class="feature-title">공유 파라미터 GUID 검토</h2>
+      <p class="feature-sub">프로젝트/패밀리 파라미터 GUID를 공유 파라미터 파일과 비교합니다.</p>`;
+
+    const modeToggle = buildModeToggle();
+    const runBtn = cardBtn('검토 시작', onRun);
+    const exportBtn = cardBtn('엑셀 내보내기', onExport);
+    exportBtn.disabled = true;
+    const actions = div('feature-actions');
+    const rightActions = div('guid-header-actions');
+    rightActions.append(modeToggle, runBtn, exportBtn);
+    actions.append(rightActions);
+    header.append(heading, actions);
+    page.append(header);
+
+    const body = div('guid-body');
+
+    // RVT section
+    const rvtSection = div('feature-results-panel guid-panel');
+    const rvtHeader = document.createElement('div');
+    rvtHeader.className = 'feature-results-head';
+    const rvtTitle = document.createElement('div');
+    rvtTitle.className = 'guid-title';
+    rvtTitle.innerHTML = '<h3>대상 RVT 목록</h3><p class="feature-note">비우면 현재 활성 문서를 사용합니다.</p>';
+    const rvtActions = div('feature-actions');
+    let btnRemove = null;
+    const btnAdd = cardBtn('RVT 파일 추가', () => post('guid:add-files', { pick: 'files' }));
+    const btnAddFolder = cardBtn('폴더 선택', () => post('guid:add-files', { pick: 'folder' }));
+    btnRemove = cardBtn('선택 제거', onRemoveSelected);
+    btnRemove.disabled = true;
+    const btnClear = cardBtn('목록 지우기', () => { state.rvtList = []; state.rvtChecked.clear(); persistRvts(); renderRvtList(); syncRvtActionState(); });
+    rvtActions.append(btnAdd, btnAddFolder, btnRemove, btnClear);
+    rvtHeader.append(rvtTitle, rvtActions);
+    const rvtTableWrap = div('guid-table-wrap guid-rvt-wrap');
+    const rvtTable = document.createElement('table'); rvtTable.className = 'guid-rvt-table';
+    rvtTable.innerHTML = '<thead><tr><th><input type="checkbox"></th><th>#</th><th>파일명</th><th>경로</th></tr></thead><tbody></tbody>';
+    const rvtBody = rvtTable.querySelector('tbody');
+    rvtTableWrap.append(rvtTable);
+    rvtSection.append(rvtHeader, rvtTableWrap);
+    body.append(rvtSection);
+
+    // Result tabs
+    const tabs = div('feature-results-panel guid-results feature-tabs');
+    const tabHead = div('feature-results-head');
+    const tabBtns = div('pill-tabs');
+    const btnTabSummary = document.createElement('button'); btnTabSummary.type = 'button'; btnTabSummary.className = 'pill-tab is-active'; btnTabSummary.innerHTML = `<span class="pill-label">요약</span><span class="pill-count">0</span>`;
+    const btnTabDetail = document.createElement('button'); btnTabDetail.type = 'button'; btnTabDetail.className = 'pill-tab'; btnTabDetail.innerHTML = `<span class="pill-label">패밀리/파라미터</span><span class="pill-count">0</span>`;
+    tabBtns.append(btnTabSummary, btnTabDetail);
+    tabHead.append(tabBtns);
+    tabs.append(tabHead);
+
+    const tabPanels = div('guid-tab-panels');
+    const tabPanelSummary = div('guid-tab-panel');
+    const summaryTableWrap = div('guid-table-wrap');
+    const summaryTable = document.createElement('table'); summaryTable.className = 'guid-table';
+    const summaryHead = document.createElement('thead');
+    const summaryBody = document.createElement('tbody');
+    summaryTable.append(summaryHead, summaryBody);
+        summaryTableWrap.append(summaryTable);
+        tabPanelSummary.append(summaryTableWrap);
+
+    const tabPanelDetail = div('guid-tab-panel is-hidden');
+    const detailWrap = div('guid-detail-wrap');
+    const navPane = div('guid-detail-nav feature-results-panel');
+    const navList = document.createElement('ul'); navList.className = 'guid-nav-list';
+    navPane.append(navList);
+    const detailPane = div('guid-detail-pane');
+    const detailTableWrap = div('guid-table-wrap');
+    const detailTable = document.createElement('table'); detailTable.className = 'guid-table';
+    const detailHead = document.createElement('thead');
+    const detailBody = document.createElement('tbody');
+    detailTable.append(detailHead, detailBody);
+    detailTableWrap.append(detailTable);
+    detailPane.append(detailTableWrap);
+    detailWrap.append(navPane, detailPane);
+    tabPanelDetail.append(detailWrap);
+
+    tabPanels.append(tabPanelSummary, tabPanelDetail);
+    tabs.append(tabPanels);
+    body.append(tabs);
+
+    page.append(body);
+    target.append(page);
+
+    renderRvtList();
+    syncTabState();
+    syncRvtActionState();
+
+    // Host events
+    onHost('guid:files', ({ paths }) => {
+        const list = Array.isArray(paths) ? paths : [];
+        let added = 0;
+        list.forEach(p => {
+            const path = normalizeRvtPath(p);
+            if (!path) return;
+            const exists = state.rvtList.some(x => samePath(x, path));
+            if (!exists) { state.rvtList.push(path); added++; }
+            state.rvtChecked.add(path);
+        });
+        state.rvtList = dedupPaths(state.rvtList);
+        if (added) {
+            persistRvts();
+            renderRvtList();
+        } else {
+            renderRvtList();
+        }
+        syncRvtActionState();
+    });
+
+    onHost('guid:progress', (payload) => {
+        if (payload && payload.phase) {
+            handleExcelProgress(payload);
+        } else {
+            handleRunProgress(payload);
+        }
+    });
+
+    onHost('guid:done', (payload) => {
+        ProgressDialog.hide();
+        setBusy(false);
+        lastExcelPct = 0;
+        const sum = payload?.summary || {};
+        const det = payload?.detail || {};
+        state.summary = {
+            columns: Array.isArray(sum.columns) ? sum.columns : [],
+            rows: Array.isArray(sum.rows) ? sum.rows : []
+        };
+        state.detail = {
+            columns: Array.isArray(det.columns) ? det.columns : [],
+            rows: Array.isArray(det.rows) ? det.rows : []
+        };
+        state.activeDocKey = '';
+        state.activeFamily = '';
+        exportBtn.disabled = !hasRowsForExport();
+        updateTabCounts();
+        paintSummary();
+        paintDetail();
+        syncTabState();
+        toast('검토 완료', 'ok');
+    });
+
+    onHost('guid:warn', ({ message }) => {
+        if (message) toast(message, 'warn');
+    });
+
+    onHost('guid:exported', ({ path }) => {
+        ProgressDialog.hide();
+        setBusy(false);
+        lastExcelPct = 0;
+        if (path) {
+            showExcelSavedDialog('엑셀로 내보냈습니다.', path, (p) => post('excel:open', { path: p }));
+        } else {
+            toast('엑셀 내보내기 완료', 'ok');
+        }
+    });
+
+    const handleError = ({ message }) => {
+        ProgressDialog.hide();
+        setBusy(false);
+        lastExcelPct = 0;
+        if (message) toast(message, 'err');
+    };
+    onHost('guid:error', handleError);
+    onHost('revit:error', handleError);
+    onHost('host:error', handleError);
+
+    // UI handlers
+    btnTabSummary.onclick = () => { state.activeTab = 'summary'; syncTabState(); };
+    btnTabDetail.onclick = () => {
+        if (state.mode !== 2) return;
+        state.activeTab = 'detail';
+        syncTabState();
+    };
+
+    function onRun() {
+        if (state.busy) return;
+        state.rvtList = dedupPaths(state.rvtList);
+        const targets = dedupPaths(state.rvtList.filter(p => state.rvtChecked.has(p)));
+        if (state.rvtList.length > 0 && targets.length === 0) {
+            toast('선택된 RVT가 없습니다.', 'warn');
+            return;
+        }
+
+        const payload = {
+            mode: state.mode,
+            rvtPaths: state.rvtList.length === 0 ? [] : targets
+        };
+        persistRvts();
+
+        setBusy(true);
+        if (state.mode !== 2) state.activeTab = 'summary';
+        ProgressDialog.show('GUID Audit', '준비 중…');
+        post('guid:run', payload);
+    }
+
+    function onExport() {
+        if (state.busy) return;
+        if (!hasRowsForExport()) { toast('저장할 결과가 없습니다.', 'warn'); return; }
+        const which = state.activeTab === 'detail' ? 'detail' : 'summary';
+        chooseExcelMode((mode) => {
+            const excelMode = mode || 'fast';
+            lastExcelPct = 0;
+            setBusy(true);
+            ProgressDialog.show('엑셀 내보내기', '엑셀 파일을 만드는 중…');
+            post('guid:export', { which, excelMode });
+        });
+    }
+
+    function buildModeToggle() {
+        const wrap = div('guid-mode');
+        const btnM1 = document.createElement('button'); btnM1.type = 'button'; btnM1.className = 'mode-btn is-active'; btnM1.textContent = 'Mode 1: 프로젝트 파라미터';
+        const btnM2 = document.createElement('button'); btnM2.type = 'button'; btnM2.className = 'mode-btn'; btnM2.textContent = 'Mode 2: 패밀리 공유 파라미터';
+        btnM1.onclick = () => { if (state.mode === 1) return; state.mode = 1; state.activeTab = 'summary'; syncModeButtons(); syncTabState(); };
+        btnM2.onclick = () => { if (state.mode === 2) return; state.mode = 2; syncModeButtons(); syncTabState(); };
+        wrap.append(btnM1, btnM2);
+        function syncModeButtons() {
+            btnM1.classList.toggle('is-active', state.mode === 1);
+            btnM2.classList.toggle('is-active', state.mode === 2);
+        }
+        return wrap;
+    }
+
+    function renderRvtList() {
+        state.rvtList = dedupPaths(state.rvtList);
+        state.rvtChecked = new Set(state.rvtList.filter(p => state.rvtChecked.has(p)));
+        const master = rvtTable.querySelector('thead input[type="checkbox"]');
+        const allChecked = state.rvtList.length > 0 && state.rvtList.every(p => state.rvtChecked.has(p));
+        master.checked = allChecked;
+        master.indeterminate = state.rvtList.length > 0 && !allChecked && state.rvtChecked.size > 0;
+        master.onchange = () => {
+            if (master.checked) state.rvtChecked = new Set(state.rvtList);
+            else state.rvtChecked.clear();
+            persistRvts();
+            renderRvtList();
+        };
+
+        rvtBody.innerHTML = '';
+        if (!state.rvtList.length) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td'); td.colSpan = 4; td.textContent = '등록된 RVT가 없습니다.';
+            tr.append(td); rvtBody.append(tr); return;
+        }
+        state.rvtList.forEach((p, i) => {
+            const tr = document.createElement('tr');
+            const tdCk = document.createElement('td');
+            const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = state.rvtChecked.has(p);
+            ck.onchange = () => {
+                if (ck.checked) state.rvtChecked.add(p); else state.rvtChecked.delete(p);
+                persistRvts();
+                renderRvtList();
+            };
+            tdCk.append(ck);
+            const name = p?.split(/[\\/]/).pop() || '(Doc)';
+            const tdIdx = document.createElement('td'); tdIdx.textContent = i + 1;
+            const tdName = document.createElement('td'); tdName.textContent = name;
+            const tdPath = document.createElement('td'); tdPath.className = 'path-cell'; tdPath.textContent = p;
+            tr.append(tdCk, tdIdx, tdName, tdPath);
+            rvtBody.append(tr);
+        });
+        syncRvtActionState();
+    }
+
+    function paintSummary() {
+        buildHead(summaryHead, state.summary.columns, new Set());
+        paintVirtualRows(summaryBody, state.summary.columns, state.summary.rows, new Set());
+    }
+
+    function paintDetail() {
+        buildHead(detailHead, state.detail.columns, HIDDEN_DETAIL_COLS);
+        paintVirtualRows(detailBody, state.detail.columns, filteredDetailRows(), HIDDEN_DETAIL_COLS);
+        buildNav();
+    }
+
+    function buildNav() {
+        navList.innerHTML = '';
+        if (!state.detail.rows.length) {
+            const empty = document.createElement('li');
+            empty.className = 'guid-nav-empty';
+            empty.textContent = '상세 결과가 없습니다.';
+            navList.append(empty);
+            return;
+        }
+        const idxPath = colIndex('RvtPath');
+        const idxName = colIndex('RvtName');
+        const idxFam = colIndex('FamilyName');
+        const map = new Map();
+        state.detail.rows.forEach(row => {
+            const path = (row[idxPath] || '').toString();
+            const rname = (row[idxName] || path || '(Doc)').toString();
+            const fam = (row[idxFam] || '').toString();
+            const key = path || rname;
+            if (!map.has(key)) map.set(key, { name: rname, families: new Set() });
+            if (fam) map.get(key).families.add(fam);
+        });
+        Array.from(map.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name)).forEach(([key, info]) => {
+            const docItem = document.createElement('li');
+            docItem.className = 'guid-nav-doc';
+            const docTitle = document.createElement('div');
+            docTitle.className = 'nav-doc-title';
+            docTitle.textContent = info.name;
+            docItem.append(docTitle);
+
+            const famList = document.createElement('ul');
+            famList.className = 'guid-nav-fams';
+
+            Array.from(info.families).sort((a, b) => a.localeCompare(b)).forEach(f => {
+                const li = document.createElement('li');
+                const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'nav-fam-item'; btn.textContent = f;
+                btn.title = f;
+                btn.onclick = () => { state.activeDocKey = key; state.activeFamily = f; paintDetail(); };
+                if (state.activeDocKey === key && state.activeFamily === f) btn.classList.add('is-active');
+                li.append(btn);
+                famList.append(li);
+            });
+
+            docItem.append(famList);
+            navList.append(docItem);
+        });
+    }
+
+    function filteredDetailRows() {
+        if (!state.detail.rows.length) return [];
+        const idxPath = colIndex('RvtPath');
+        const idxFam = colIndex('FamilyName');
+        const key = state.activeDocKey;
+        const fam = state.activeFamily;
+        if (!key && !fam) return state.detail.rows;
+        return state.detail.rows.filter(row => {
+            const path = (row[idxPath] || '').toString();
+            const famName = (row[idxFam] || '').toString();
+            const docMatch = !key || ((path || '') === key);
+            const famMatch = !fam || (famName === fam);
+            return docMatch && famMatch;
+        });
+    }
+
+    function colIndex(name) {
+        return state.detail.columns.findIndex(c => c === name);
+    }
+
+    function buildHead(thead, columns, hidden) {
+        thead.innerHTML = '';
+        const tr = document.createElement('tr');
+        columns.forEach(c => {
+            if (hidden.has(c)) return;
+            const th = document.createElement('th');
+            th.textContent = c;
+            tr.append(th);
+        });
+        thead.append(tr);
+    }
+
+    function paintVirtualRows(tbody, columns, rows, hidden) {
+        tbody.innerHTML = '';
+        let idx = 0;
+        const chunk = () => {
+            const frag = document.createDocumentFragment();
+            for (let i = 0; i < 200 && idx < rows.length; i++, idx++) {
+                const row = rows[idx];
+                const tr = document.createElement('tr');
+                columns.forEach((c, ci) => {
+                    if (hidden.has(c)) return;
+                    const td = document.createElement('td');
+                    td.textContent = safe(row[ci]);
+                    tr.append(td);
+                });
+                frag.append(tr);
+            }
+            tbody.append(frag);
+            if (idx < rows.length) setTimeout(chunk, 0);
+        };
+        chunk();
+    }
+
+    function hasRowsForExport() {
+        if (state.activeTab === 'detail' && state.mode === 2) {
+            return (state.detail.rows || []).length > 0;
+        }
+        return (state.summary.rows || []).length > 0;
+    }
+
+    function syncTabState() {
+        btnTabSummary.classList.toggle('is-active', state.activeTab === 'summary');
+        btnTabDetail.classList.toggle('is-active', state.activeTab === 'detail');
+        btnTabDetail.disabled = (state.mode !== 2);
+        tabPanelSummary.classList.toggle('is-hidden', state.activeTab !== 'summary');
+        tabPanelDetail.classList.toggle('is-hidden', state.activeTab !== 'detail' || state.mode !== 2);
+        if (state.activeTab === 'detail' && state.mode !== 2) {
+            state.activeTab = 'summary';
+        }
+        exportBtn.disabled = !hasRowsForExport();
+        updateTabCounts();
+    }
+
+    function setBusy(on) {
+        state.busy = on;
+        runBtn.disabled = on;
+        exportBtn.disabled = on || !hasRowsForExport();
+    }
+
+    function persistRvts() {
+        state.rvtList = dedupPaths(state.rvtList);
+        try { localStorage.setItem(LS_RVTS, JSON.stringify(state.rvtList || [])); } catch { }
+    }
+
+    function loadRvtList() {
+        try {
+            const raw = localStorage.getItem(LS_RVTS);
+            const arr = JSON.parse(raw || '[]');
+            if (Array.isArray(arr)) return dedupPaths(arr);
+        } catch { }
+        return [];
+    }
+
+    function handleRunProgress(payload) {
+        const percent = typeof payload?.pct === 'number' ? payload.pct : 0;
+        const message = payload?.text || '';
+        if (!state.busy && percent <= 0) return;
+        if (!state.busy) setBusy(true);
+        ProgressDialog.show('GUID Audit', message || '진행 중…');
+        ProgressDialog.update(percent, message || '', '');
+    }
+
+    function handleExcelProgress(payload) {
+        const phase = normalizeExcelPhase(payload?.phase);
+        const total = Number(payload?.total) || 0;
+        const current = Number(payload?.current) || 0;
+        const percent = computeExcelPercent(phase, current, total, payload?.phaseProgress);
+        const subtitle = buildExcelSubtitle(phase, current, total);
+        const detail = formatExcelDetail(phase, payload?.message);
+
+        const exporting = phase !== 'DONE' && phase !== 'ERROR';
+        if (!state.busy && exporting) setBusy(true);
+
+        ProgressDialog.show('엑셀 내보내기', subtitle || '엑셀 내보내기 중…');
+        ProgressDialog.update(percent, subtitle, detail);
+
+        if (!exporting) {
+            setTimeout(() => { ProgressDialog.hide(); lastExcelPct = 0; setBusy(false); }, 260);
+        }
+    }
+
+    function normalizeExcelPhase(phase) {
+        return String(phase || '').trim().toUpperCase() || 'EXCEL_WRITE';
+    }
+
+    function computeExcelPercent(phase, current, total, phaseProgress) {
+        const norm = normalizeExcelPhase(phase);
+        if (norm === 'DONE') { lastExcelPct = 100; return 100; }
+        if (norm === 'ERROR') return lastExcelPct;
+
+        const completed = ['EXCEL_INIT', 'EXCEL_WRITE', 'EXCEL_SAVE', 'AUTOFIT'].reduce((acc, key) => {
+            if (key === norm) return acc;
+            return acc + (EXCEL_PHASE_WEIGHT[key] || 0);
+        }, 0);
+        const weight = EXCEL_PHASE_WEIGHT[norm] || 0;
+        const ratio = total > 0 ? Math.max(0, Math.min(1, current / total)) : 0;
+        const staged = Math.max(ratio, clamp01(phaseProgress));
+        const pct = (completed + weight * staged) / (completed + weight) * 100;
+        lastExcelPct = Math.max(lastExcelPct, Math.min(100, pct));
+        return lastExcelPct;
+    }
+
+    function clamp01(v) { const n = Number(v); if (Number.isFinite(n)) return Math.max(0, Math.min(1, n)); return 0; }
+
+    function buildExcelSubtitle(phase, current, total) {
+        const norm = normalizeExcelPhase(phase);
+        switch (norm) {
+            case 'EXCEL_INIT': return '엑셀 워크북 준비 중';
+            case 'EXCEL_WRITE': return `엑셀 데이터 작성 중 (${current}/${Math.max(total, current || 1)})`;
+            case 'EXCEL_SAVE': return '엑셀 내보내기 중';
+            case 'AUTOFIT': return '열 너비 자동 조정 중…';
+            case 'DONE': return '엑셀 내보내기 완료';
+            case 'ERROR': return '엑셀 내보내기 오류';
+            default: return '엑셀 내보내기 중…';
+        }
+    }
+
+    function formatExcelDetail(phase, message) {
+        const norm = normalizeExcelPhase(phase);
+        if (norm === 'AUTOFIT') return '열 너비 자동 조정 중…';
+        return message || '';
+    }
+
+    function onRemoveSelected() {
+        if (!state.rvtChecked.size) { toast('제거할 RVT를 선택하세요.', 'warn'); return; }
+        state.rvtList = state.rvtList.filter(p => !state.rvtChecked.has(p));
+        state.rvtChecked = new Set(state.rvtList);
+        persistRvts();
+        renderRvtList();
+    }
+
+    function syncRvtActionState() {
+        if (btnRemove) btnRemove.disabled = state.rvtChecked.size === 0;
+    }
+
+    function updateTabCounts() {
+        setTabCount(btnTabSummary, state.summary.rows.length || 0);
+        setTabCount(btnTabDetail, state.detail.rows.length || 0);
+    }
+}
+
+function normalizeRvtPath(entry) {
+    if (!entry) return '';
+    if (typeof entry === 'string') return entry.trim();
+    if (typeof entry === 'object') {
+        if (typeof entry.path === 'string') return entry.path.trim();
+        if (typeof entry.fullPath === 'string') return entry.fullPath.trim();
+    }
+    return '';
+}
+
+function dedupPaths(list) {
+    const seen = new Set();
+    const clean = [];
+    (list || []).forEach(item => {
+        const path = normalizeRvtPath(item);
+        if (!path) return;
+        const key = path.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        clean.push(path);
+    });
+    return clean;
+}
+
+function setTabCount(btn, count) {
+    if (!btn) return;
+    const badge = btn.querySelector('.pill-count');
+    if (!badge) return;
+    badge.textContent = Number.isFinite(count) ? count : 0;
+}
+
+function safe(v) {
+    if (v === null || v === undefined) return '';
+    return String(v);
+}
+
+function samePath(a, b) {
+    if (!a || !b) return false;
+    return a.toLowerCase() === b.toLowerCase();
+}
+
+function cardBtn(text, onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn card-btn';
+    btn.textContent = text;
+    btn.onclick = onClick;
+    return btn;
+}
