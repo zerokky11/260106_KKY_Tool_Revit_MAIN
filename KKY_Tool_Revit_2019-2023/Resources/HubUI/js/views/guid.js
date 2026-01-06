@@ -19,10 +19,13 @@ export function renderGuid(root) {
         rvtChecked: new Set(initialRvtList),
         summary: { columns: [], rows: [] },
         detail: { columns: [], rows: [] },
+        familyIndex: { columns: [], rows: [] },
         activeTab: 'summary',
         activeDocKey: '',
         activeFamily: '',
-        busy: false
+        busy: false,
+        runId: '',
+        includeAnnotation: false
     };
     let lastExcelPct = 0;
 
@@ -37,12 +40,13 @@ export function renderGuid(root) {
       <p class="feature-sub">프로젝트/패밀리 파라미터 GUID를 공유 파라미터 파일과 비교합니다.</p>`;
 
     const modeToggle = buildModeToggle();
+    const annotationToggle = buildAnnotationToggle();
     const runBtn = cardBtn('검토 시작', onRun);
     const exportBtn = cardBtn('엑셀 내보내기', onExport);
     exportBtn.disabled = true;
     const actions = div('feature-actions');
     const rightActions = div('guid-header-actions');
-    rightActions.append(modeToggle, runBtn, exportBtn);
+    rightActions.append(modeToggle, annotationToggle, runBtn, exportBtn);
     actions.append(rightActions);
     header.append(heading, actions);
     page.append(header);
@@ -119,6 +123,7 @@ export function renderGuid(root) {
     renderRvtList();
     syncTabState();
     syncRvtActionState();
+    syncAnnotationToggle();
 
     // Host events
     onHost('guid:files', ({ paths }) => {
@@ -153,24 +158,42 @@ export function renderGuid(root) {
         ProgressDialog.hide();
         setBusy(false);
         lastExcelPct = 0;
-        const sum = payload?.summary || {};
-        const det = payload?.detail || {};
+        const sum = payload?.project || {};
+        const famIdx = payload?.familyIndex || {};
+        state.runId = payload?.runId || '';
+        state.mode = payload?.mode === 2 ? 2 : 1;
+        state.includeAnnotation = !!payload?.includeAnnotation;
         state.summary = {
             columns: Array.isArray(sum.columns) ? sum.columns : [],
             rows: Array.isArray(sum.rows) ? sum.rows : []
         };
-        state.detail = {
-            columns: Array.isArray(det.columns) ? det.columns : [],
-            rows: Array.isArray(det.rows) ? det.rows : []
+        state.familyIndex = {
+            columns: Array.isArray(famIdx.columns) ? famIdx.columns : [],
+            rows: Array.isArray(famIdx.rows) ? famIdx.rows : []
         };
+        state.detail = { columns: [], rows: [] };
         state.activeDocKey = '';
         state.activeFamily = '';
+        syncAnnotationToggle();
         exportBtn.disabled = !hasRowsForExport();
         updateTabCounts();
         paintSummary();
         paintDetail();
         syncTabState();
         toast('검토 완료', 'ok');
+    });
+
+    onHost('guid:family-detail', (payload) => {
+        if (payload?.runId && state.runId && payload.runId !== state.runId) return;
+        state.detail = {
+            columns: Array.isArray(payload?.columns) ? payload.columns : [],
+            rows: Array.isArray(payload?.rows) ? payload.rows : []
+        };
+        state.activeDocKey = payload?.rvtPath || state.activeDocKey || '';
+        state.activeFamily = payload?.familyName || state.activeFamily || '';
+        updateTabCounts();
+        paintDetail();
+        syncTabState();
     });
 
     onHost('guid:warn', ({ message }) => {
@@ -215,13 +238,21 @@ export function renderGuid(root) {
             return;
         }
 
+        const includeFamily = state.mode === 2;
         const payload = {
             mode: state.mode,
-            rvtPaths: state.rvtList.length === 0 ? [] : targets
+            rvtPaths: state.rvtList.length === 0 ? [] : targets,
+            includeFamily,
+            includeAnnotation: includeFamily ? !!state.includeAnnotation : false
         };
         persistRvts();
 
+        state.familyIndex = { columns: [], rows: [] };
+        state.detail = { columns: [], rows: [] };
+        state.activeDocKey = '';
+        state.activeFamily = '';
         setBusy(true);
+        state.runId = '';
         if (state.mode !== 2) state.activeTab = 'summary';
         ProgressDialog.show('GUID Audit', '준비 중…');
         post('guid:run', payload);
@@ -244,13 +275,33 @@ export function renderGuid(root) {
         const wrap = div('guid-mode');
         const btnM1 = document.createElement('button'); btnM1.type = 'button'; btnM1.className = 'mode-btn is-active'; btnM1.textContent = 'Mode 1: 프로젝트 파라미터';
         const btnM2 = document.createElement('button'); btnM2.type = 'button'; btnM2.className = 'mode-btn'; btnM2.textContent = 'Mode 2: 패밀리 공유 파라미터';
-        btnM1.onclick = () => { if (state.mode === 1) return; state.mode = 1; state.activeTab = 'summary'; syncModeButtons(); syncTabState(); };
-        btnM2.onclick = () => { if (state.mode === 2) return; state.mode = 2; syncModeButtons(); syncTabState(); };
+        btnM1.onclick = () => { if (state.mode === 1) return; state.mode = 1; state.includeAnnotation = false; state.activeTab = 'summary'; syncModeButtons(); syncAnnotationToggle(); syncTabState(); };
+        btnM2.onclick = () => { if (state.mode === 2) return; state.mode = 2; syncModeButtons(); syncAnnotationToggle(); syncTabState(); };
         wrap.append(btnM1, btnM2);
         function syncModeButtons() {
             btnM1.classList.toggle('is-active', state.mode === 1);
             btnM2.classList.toggle('is-active', state.mode === 2);
         }
+        return wrap;
+    }
+
+    function buildAnnotationToggle() {
+        const wrap = div('guid-annotation');
+        const label = document.createElement('label');
+        label.className = 'guid-checkbox';
+        const ck = document.createElement('input');
+        ck.type = 'checkbox';
+        ck.checked = !!state.includeAnnotation;
+        ck.onchange = () => { state.includeAnnotation = !!ck.checked; };
+        const span = document.createElement('span');
+        span.textContent = 'Annotation 포함';
+        label.append(ck, span);
+        wrap.append(label);
+        wrap.sync = function () {
+            ck.checked = !!state.includeAnnotation;
+            ck.disabled = state.mode !== 2;
+            if (state.mode !== 2) ck.checked = false;
+        };
         return wrap;
     }
 
@@ -307,21 +358,21 @@ export function renderGuid(root) {
 
     function buildNav() {
         navList.innerHTML = '';
-        if (!state.detail.rows.length) {
+        if (!state.familyIndex.rows.length) {
             const empty = document.createElement('li');
             empty.className = 'guid-nav-empty';
-            empty.textContent = '상세 결과가 없습니다.';
+            empty.textContent = state.mode === 2 ? '패밀리 결과가 없습니다.' : '상세 결과가 없습니다.';
             navList.append(empty);
             return;
         }
-        const idxPath = colIndex('RvtPath');
-        const idxName = colIndex('RvtName');
-        const idxFam = colIndex('FamilyName');
+        const idxPath = indexCol(state.familyIndex, 'RvtPath');
+        const idxName = indexCol(state.familyIndex, 'RvtName');
+        const idxFam = indexCol(state.familyIndex, 'FamilyName');
         const map = new Map();
-        state.detail.rows.forEach(row => {
-            const path = (row[idxPath] || '').toString();
-            const rname = (row[idxName] || path || '(Doc)').toString();
-            const fam = (row[idxFam] || '').toString();
+        state.familyIndex.rows.forEach(row => {
+            const path = idxPath >= 0 ? (row[idxPath] || '').toString() : '';
+            const rname = idxName >= 0 ? (row[idxName] || path || '(Doc)').toString() : (path || '(Doc)');
+            const fam = idxFam >= 0 ? (row[idxFam] || '').toString() : '';
             const key = path || rname;
             if (!map.has(key)) map.set(key, { name: rname, families: new Set() });
             if (fam) map.get(key).families.add(fam);
@@ -341,7 +392,7 @@ export function renderGuid(root) {
                 const li = document.createElement('li');
                 const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'nav-fam-item'; btn.textContent = f;
                 btn.title = f;
-                btn.onclick = () => { state.activeDocKey = key; state.activeFamily = f; paintDetail(); };
+                btn.onclick = () => { onRequestFamilyDetail(key, f); };
                 if (state.activeDocKey === key && state.activeFamily === f) btn.classList.add('is-active');
                 li.append(btn);
                 famList.append(li);
@@ -350,6 +401,18 @@ export function renderGuid(root) {
             docItem.append(famList);
             navList.append(docItem);
         });
+    }
+
+    function onRequestFamilyDetail(rvtPath, familyName) {
+        if (!state.runId) {
+            toast('먼저 검토를 실행하세요.', 'warn');
+            return;
+        }
+        state.activeDocKey = rvtPath || familyName || '';
+        state.activeFamily = familyName || '';
+        state.detail = { columns: [], rows: [] };
+        paintDetail();
+        post('guid:request-family-detail', { runId: state.runId, rvtPath, familyName });
     }
 
     function filteredDetailRows() {
@@ -370,6 +433,10 @@ export function renderGuid(root) {
 
     function colIndex(name) {
         return state.detail.columns.findIndex(c => c === name);
+    }
+
+    function indexCol(table, name) {
+        return (table.columns || []).findIndex(c => c === name);
     }
 
     function buildHead(thead, columns, hidden) {
@@ -407,8 +474,9 @@ export function renderGuid(root) {
     }
 
     function hasRowsForExport() {
-        if (state.activeTab === 'detail' && state.mode === 2) {
-            return (state.detail.rows || []).length > 0;
+        if (state.mode === 2 && state.activeTab === 'detail') {
+            if ((state.detail.rows || []).length > 0) return true;
+            return (state.familyIndex.rows || []).length > 0;
         }
         return (state.summary.rows || []).length > 0;
     }
@@ -424,6 +492,12 @@ export function renderGuid(root) {
         }
         exportBtn.disabled = !hasRowsForExport();
         updateTabCounts();
+    }
+
+    function syncAnnotationToggle() {
+        if (annotationToggle && typeof annotationToggle.sync === 'function') {
+            annotationToggle.sync();
+        }
     }
 
     function setBusy(on) {
@@ -530,7 +604,8 @@ export function renderGuid(root) {
 
     function updateTabCounts() {
         setTabCount(btnTabSummary, state.summary.rows.length || 0);
-        setTabCount(btnTabDetail, state.detail.rows.length || 0);
+        const detCount = state.mode === 2 ? (state.familyIndex.rows.length || 0) : (state.detail.rows.length || 0);
+        setTabCount(btnTabDetail, detCount);
     }
 }
 

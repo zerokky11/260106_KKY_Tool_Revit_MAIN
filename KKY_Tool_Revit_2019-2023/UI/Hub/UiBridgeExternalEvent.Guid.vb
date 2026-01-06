@@ -17,6 +17,8 @@ Namespace UI.Hub
         Private _guidSummary As DataTable = Nothing
         Private _guidDetail As DataTable = Nothing
         Private _guidMode As Integer = 1
+        Private _guidRunId As String = String.Empty
+        Private _guidFamilyIndex As DataTable = Nothing
 
         ' -----------------------------
         ' 핸들러
@@ -57,10 +59,14 @@ Namespace UI.Hub
             Dim mode As Integer = SafeIntObj(GetProp(pd, "mode"), 1)
             If mode <> 1 AndAlso mode <> 2 Then mode = 1
             Dim rvtPaths = ParseStringList(pd, "rvtPaths")
+            Dim includeFamily As Boolean = SafeBoolObj(GetProp(pd, "includeFamily"), mode = 2)
+            Dim includeAnnotation As Boolean = SafeBoolObj(GetProp(pd, "includeAnnotation"), False)
 
             Try
                 _guidSummary = Nothing
                 _guidDetail = Nothing
+                _guidFamilyIndex = Nothing
+                _guidRunId = String.Empty
                 _guidMode = mode
 
                 Dim res = GuidAuditService.Run(app, mode, rvtPaths, AddressOf ReportGuidProgress,
@@ -68,21 +74,39 @@ Namespace UI.Hub
                                                    If Not String.IsNullOrWhiteSpace(msg) Then
                                                        SendToWeb("guid:warn", New With {.message = msg})
                                                    End If
-                                               End Sub)
+                                               End Sub,
+                                               includeFamily:=includeFamily,
+                                               includeAnnotation:=includeAnnotation)
                 _guidSummary = res.Summary
                 _guidDetail = res.Detail
+                _guidFamilyIndex = res.FamilyIndex
+                _guidRunId = res.RunId
 
                 Dim payloadSummary = ShapeTable(res.Summary, Nothing)
-                Dim payloadDetail As Object = Nothing
-                If mode = 2 AndAlso res.Detail IsNot Nothing Then
-                    payloadDetail = ShapeTable(res.Detail, Nothing)
-                End If
+                Dim payloadIndex = ShapeTable(res.FamilyIndex, Nothing)
 
-                SendToWeb("guid:done", New With {
+                Dim donePayload = New With {
                     .mode = mode,
-                    .summary = payloadSummary,
-                    .detail = payloadDetail
-                })
+                    .runId = _guidRunId,
+                    .includeFamily = includeFamily,
+                    .includeAnnotation = includeAnnotation,
+                    .project = payloadSummary,
+                    .familyIndex = payloadIndex
+                }
+
+                Try
+                    SendToWeb("guid:done", donePayload)
+                Catch exSend As Exception
+                    Dim hr As Integer = 0
+                    Try : hr = exSend.HResult : Catch : hr = 0 : End Try
+                    SendToWeb("guid:error", New With {
+                        .message = $"guid:done 전송 실패: {exSend.Message}",
+                        .hResult = hr,
+                        .summaryRows = If(res.Summary Is Nothing, 0, res.Summary.Rows.Count),
+                        .detailRows = If(res.Detail Is Nothing, 0, res.Detail.Rows.Count),
+                        .familyIndexRows = If(res.FamilyIndex Is Nothing, 0, res.FamilyIndex.Rows.Count)
+                    })
+                End Try
             Catch ex As Exception
                 SendToWeb("guid:error", New With {.message = ex.Message})
             Finally
@@ -140,6 +164,37 @@ Namespace UI.Hub
             End Try
         End Sub
 
+        Private Sub HandleGuidRequestFamilyDetail(app As UIApplication, payload As Object)
+            Dim pd = ParsePayloadDict(payload)
+            Dim runId As String = ""
+            Dim rvtPath As String = ""
+            Dim familyName As String = ""
+            Try : runId = Convert.ToString(GetProp(pd, "runId")) : Catch : runId = "" : End Try
+            Try : rvtPath = Convert.ToString(GetProp(pd, "rvtPath")) : Catch : rvtPath = "" : End Try
+            Try : familyName = Convert.ToString(GetProp(pd, "familyName")) : Catch : familyName = "" : End Try
+
+            If String.IsNullOrWhiteSpace(runId) OrElse Not String.Equals(runId, _guidRunId, StringComparison.OrdinalIgnoreCase) Then
+                SendToWeb("guid:error", New With {.message = "이전 실행 결과 요청(runId mismatch)", .runId = runId})
+                Return
+            End If
+
+            If _guidDetail Is Nothing OrElse _guidDetail.Rows.Count = 0 Then
+                SendToWeb("guid:error", New With {.message = "가져올 패밀리 상세 결과가 없습니다.", .runId = runId})
+                Return
+            End If
+
+            Dim filtered = FilterFamilyDetail(_guidDetail, rvtPath, familyName)
+            Dim shaped = ShapeTable(filtered, Nothing)
+
+            SendToWeb("guid:family-detail", New With {
+                .runId = _guidRunId,
+                .rvtPath = rvtPath,
+                .familyName = familyName,
+                .columns = shaped.columns,
+                .rows = shaped.rows
+            })
+        End Sub
+
         ' -----------------------------
         ' 유틸
         ' -----------------------------
@@ -185,6 +240,36 @@ Namespace UI.Hub
         Private Shared Function SafeStrGuid(o As Object) As String
             If o Is Nothing OrElse o Is DBNull.Value Then Return String.Empty
             Return Convert.ToString(o)
+        End Function
+
+        Private Function FilterFamilyDetail(source As DataTable, rvtPath As String, familyName As String) As DataTable
+            If source Is Nothing Then Return New DataTable()
+            Dim clone As DataTable = source.Clone()
+            Dim path As String = If(rvtPath, "")
+            Dim fam As String = If(familyName, "")
+            For Each r As DataRow In source.Rows
+                Dim rp As String = SafeStrGuid(r("RvtPath"))
+                Dim fn As String = SafeStrGuid(r("FamilyName"))
+                If String.Equals(rp, path, StringComparison.OrdinalIgnoreCase) AndAlso
+                   String.Equals(fn, fam, StringComparison.OrdinalIgnoreCase) Then
+                    clone.ImportRow(r)
+                End If
+            Next
+            Return clone
+        End Function
+
+        Private Shared Function SafeBoolObj(o As Object, Optional def As Boolean = False) As Boolean
+            Try
+                If o Is Nothing Then Return def
+                If TypeOf o Is Boolean Then Return DirectCast(o, Boolean)
+                Dim s = Convert.ToString(o)
+                If String.IsNullOrWhiteSpace(s) Then Return def
+                s = s.Trim().ToLowerInvariant()
+                If s = "true" OrElse s = "1" OrElse s = "y" OrElse s = "yes" Then Return True
+                If s = "false" OrElse s = "0" OrElse s = "n" OrElse s = "no" Then Return False
+            Catch
+            End Try
+            Return def
         End Function
 
         Private Sub HandleGuidAddFolder()
