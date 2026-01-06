@@ -823,18 +823,6 @@ Namespace Services
                                     res = "GUID_FAIL"
                                     notes = "FamilyParameter GUID 추출 실패"
                                 End If
-
-                                Dim rs = dtSum.NewRow()
-                                rs("RvtName") = If(rvtName, "")
-                                rs("Scope") = "Family"
-                                rs("FamilyName") = famName
-                                rs("FamilyCategory") = famCat
-                                rs("ParamName") = pName
-                                rs("FamilyGuid") = famGuid
-                                rs("FileGuid") = fileGuid
-                                rs("Result") = res
-                                rs("Notes") = notes
-                                dtSum.Rows.Add(rs)
                             Else
                                 res = "FAMILY_PARAM"
                             End If
