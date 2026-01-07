@@ -10,9 +10,26 @@
   gap: 14px;
 }
 
-.guid-header-actions {
+.guid-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.guid-header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  min-width: 320px;
+}
+
+.guid-options,
+.guid-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -20,30 +37,62 @@
 .guid-mode {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-soft);
-  background: var(--surface-subtle);
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.guid-mode .mode-btn {
-  padding: 8px 12px;
-  border-radius: var(--radius-pill);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-soft);
+.guid-badge {
+  pointer-events: none;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.guid-badge-check {
+  font-weight: 700;
+}
+
+.guid-option-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
-  cursor: pointer;
-  transition: all .12s ease;
+}
+
+.guid-option-badge {
+  font-size: 0.72rem;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-soft);
+  color: var(--text-soft);
   white-space: nowrap;
 }
 
-.guid-mode .mode-btn.is-active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  box-shadow: 0 6px 14px -10px var(--accent);
+.guid-annotation .guid-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-soft);
+  background: var(--surface-subtle);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.guid-annotation .guid-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+.guid-annotation .guid-checkbox.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .guid-excelmode {

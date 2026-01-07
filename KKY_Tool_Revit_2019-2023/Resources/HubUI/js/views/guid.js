@@ -297,15 +297,18 @@ export function renderGuid(root) {
     function buildModeToggle() {
         const wrap = div('guid-mode');
         const projBadge = document.createElement('span');
-        projBadge.className = 'pill-tab is-active guid-badge';
-        projBadge.textContent = 'Project(RVT) Parameter · 기본';
+        projBadge.className = 'pill-tab guid-badge';
+        projBadge.innerHTML = `<span class="guid-badge-check">✓</span><span>Project(RVT) Parameter</span><span class="guid-option-badge">기본</span>`;
 
         const famToggle = document.createElement('button');
         famToggle.type = 'button';
-        famToggle.className = 'pill-tab';
+        famToggle.className = 'pill-tab guid-option-toggle';
+        famToggle.setAttribute('aria-pressed', 'false');
         const sync = () => {
-            famToggle.classList.toggle('is-active', !!state.includeFamily);
-            famToggle.textContent = state.includeFamily ? 'Family(RFA) Parameter ON' : 'Family(RFA) Parameter 추가 검토';
+            const on = !!state.includeFamily;
+            famToggle.classList.toggle('is-active', on);
+            famToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+            famToggle.innerHTML = `<span>Family(RFA) Parameter</span><span class="guid-option-badge">추가 검토</span>`;
         };
         famToggle.onclick = () => { state.includeFamily = !state.includeFamily; syncAnnotationToggle(); syncTabState(); sync(); };
         sync();
@@ -317,23 +320,22 @@ export function renderGuid(root) {
 
     function buildAnnotationToggle() {
         const wrap = div('guid-annotation');
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'pill-tab';
-        const sync = () => {
-            const on = !!state.includeAnnotation && !!state.includeFamily;
-            btn.classList.toggle('is-active', on);
-            btn.disabled = !state.includeFamily;
-            btn.textContent = on ? 'Annotation 포함 ON' : 'Annotation 포함';
+        const label = document.createElement('label');
+        label.className = 'guid-checkbox';
+        const ck = document.createElement('input');
+        ck.type = 'checkbox';
+        ck.checked = !!state.includeAnnotation;
+        ck.onchange = () => { state.includeAnnotation = !!ck.checked; };
+        const span = document.createElement('span');
+        span.textContent = 'Annotation 포함';
+        label.append(ck, span);
+        wrap.append(label);
+        wrap.sync = function () {
+            ck.checked = !!state.includeAnnotation;
+            ck.disabled = !state.includeFamily;
+            label.classList.toggle('is-disabled', !state.includeFamily);
+            if (!state.includeFamily) ck.checked = false;
         };
-        btn.onclick = () => {
-            if (!state.includeFamily) return;
-            state.includeAnnotation = !state.includeAnnotation;
-            sync();
-        };
-        sync();
-        wrap.append(btn);
-        wrap.sync = sync;
         return wrap;
     }
 
