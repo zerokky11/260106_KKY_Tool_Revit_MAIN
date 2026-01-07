@@ -121,6 +121,7 @@
 .guid-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .guid-rvt-table th,
@@ -131,6 +132,10 @@
   border-bottom: 1px solid var(--border);
   text-align: left;
   font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
 .guid-rvt-table thead th,
@@ -139,6 +144,12 @@
   position: sticky;
   top: 0;
   z-index: 1;
+}
+
+.guid-scroll-box {
+  max-height: 380px;
+  overflow: auto;
+  min-height: 0;
 }
 
 .guid-hint {
@@ -198,6 +209,7 @@
   gap: 12px;
   min-height: 280px;
   align-items: stretch;
+  min-height: 0;
 }
 
 @media (max-width: 1160px) {
@@ -214,6 +226,11 @@
   min-height: 240px;
   flex: 1 1 auto;
   background: var(--surface-subtle);
+  min-height: 0;
+}
+
+.guid-table-wrap.guid-scroll-box {
+  max-height: 380px;
 }
 
 .guid-rvt-wrap {

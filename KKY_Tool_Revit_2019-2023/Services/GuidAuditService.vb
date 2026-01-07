@@ -657,7 +657,6 @@ Namespace Services
                             kind = "Shared"
                             docGuids = New List(Of Guid)(list)
                             docGuid = docGuids.FirstOrDefault()
-                            If docGuids.Count > 1 Then notes = "Doc 동일 이름 GUID 여러 개"
                         End If
                     End If
 
@@ -666,7 +665,6 @@ Namespace Services
                         Dim fileGuids As List(Of Guid) = Nothing
                         If fileMap IsNot Nothing AndAlso fileMap.TryGetValue(normName, fileGuids) Then
                             fileGuid = String.Join("; ", fileGuids.Select(Function(x) x.ToString()).Distinct().ToArray())
-                            If fileGuids.Count > 1 Then notes = AppendNote(notes, "Shared parameter file에 동일 이름 GUID 여러 개")
                             If docGuids Is Nothing Then docGuids = New List(Of Guid)()
                             Dim hit As Boolean = False
                             For Each g In fileGuids
@@ -676,8 +674,21 @@ Namespace Services
                                 End If
                             Next
                             result = If(hit, If(fileGuids.Count > 1, "OK(MULTI_IN_FILE)", "OK"), "MISMATCH")
+                            If result = "MISMATCH" Then
+                                notes = "RVT의 GUID와 Shared Parameter 파일 GUID 불일치"
+                            End If
                         Else
                             result = "NOT_FOUND_IN_FILE"
+                            notes = "Shared Parameter 파일에서 동일 이름을 찾지 못함"
+                        End If
+
+                        If result = "OK" OrElse result = "OK(MULTI_IN_FILE)" OrElse result = "MISMATCH" Then
+                            If fileGuids IsNot Nothing AndAlso fileGuids.Count > 1 Then
+                                notes = AppendNote(notes, "파일 내 동일 이름 GUID 여러 개")
+                            End If
+                            If docGuids IsNot Nothing AndAlso docGuids.Count > 1 Then
+                                notes = AppendNote(notes, "문서 내 동일 이름 GUID 여러 개")
+                            End If
                         End If
                     Else
                         result = "PROJECT_PARAM"
@@ -836,35 +847,49 @@ Namespace Services
                             Dim res As String = ""
                             Dim notes As String = ""
 
-                            If isSharedBool Then
-                                Dim gFam As Guid = Guid.Empty
-                                If TryGetFamilyParameterGuid(fp, gFam) Then
-                                    famGuid = gFam.ToString()
+                    If isSharedBool Then
+                        Dim gFam As Guid = Guid.Empty
+                        If TryGetFamilyParameterGuid(fp, gFam) Then
+                            famGuid = gFam.ToString()
 
-                                    Dim fileGuids As List(Of Guid) = Nothing
-                                    If fileMap.TryGetValue(normParamName, fileGuids) Then
-                                        fileGuid = String.Join("; ", fileGuids.Select(Function(x) x.ToString()).Distinct().ToArray())
-                                        If fileGuids.Count > 1 Then notes = "Shared parameter file에 동일 이름 GUID 여러 개"
+                            Dim fileGuids As List(Of Guid) = Nothing
+                            If fileMap.TryGetValue(normParamName, fileGuids) Then
+                                fileGuid = String.Join("; ", fileGuids.Select(Function(x) x.ToString()).Distinct().ToArray())
 
-                                        If fileGuids.Any(Function(x) x = gFam) Then
-                                            res = If(fileGuids.Count > 1, "OK(MULTI_IN_FILE)", "OK")
-                                        Else
-                                            res = "MISMATCH"
-                                        End If
-                                    Else
-                                        res = "NOT_FOUND_IN_FILE"
-                                    End If
+                                If fileGuids.Any(Function(x) x = gFam) Then
+                                    res = If(fileGuids.Count > 1, "OK(MULTI_IN_FILE)", "OK")
                                 Else
-                                    res = "GUID_FAIL"
-                                    notes = "FamilyParameter GUID 추출 실패"
+                                    res = "MISMATCH"
                                 End If
                             Else
-                                res = "FAMILY_PARAM"
+                                res = "NOT_FOUND_IN_FILE"
                             End If
+                        Else
+                            res = "GUID_FAIL"
+                            notes = "FamilyParameter GUID 추출 실패"
+                        End If
+                    Else
+                        res = "FAMILY_PARAM"
+                    End If
 
-                            AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, pName,
-                                         If(isSharedBool, "Y", "N"),
-                                         famGuid, fileGuid, res, notes)
+                    If isSharedBool Then
+                        If res = "NOT_FOUND_IN_FILE" Then
+                            notes = "Shared Parameter 파일에서 동일 이름을 찾지 못함"
+                        ElseIf res = "MISMATCH" Then
+                            notes = "RVT의 GUID와 Shared Parameter 파일 GUID 불일치"
+                        End If
+
+                        If res = "OK" OrElse res = "OK(MULTI_IN_FILE)" OrElse res = "MISMATCH" Then
+                            Dim fileGuids As List(Of Guid) = Nothing
+                            If fileMap.TryGetValue(normParamName, fileGuids) AndAlso fileGuids IsNot Nothing AndAlso fileGuids.Count > 1 Then
+                                notes = AppendNote(notes, "파일 내 동일 이름 GUID 여러 개")
+                            End If
+                        End If
+                    End If
+
+                    AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, pName,
+                                 If(isSharedBool, "Y", "N"),
+                                 famGuid, fileGuid, res, notes)
                         Next
 
                         Dim rIdx = dtIdx.NewRow()

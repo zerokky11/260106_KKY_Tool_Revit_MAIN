@@ -94,7 +94,7 @@ Namespace UI.Hub
                 _guidRunId = res.RunId
                 _guidIncludeFamily = res.IncludeFamily
 
-                Dim payloadProject As TablePayload = ShapeTable(res.Project, Nothing)
+                Dim payloadProject As TablePayload = ShapeTable(res.Project, New HashSet(Of String)(StringComparer.OrdinalIgnoreCase) From {"RvtPath"})
                 Dim payloadFamily As TablePayload = ShapeTable(res.FamilyIndex, Nothing)
 
                 Dim donePayload = New With {
@@ -150,14 +150,14 @@ Namespace UI.Hub
                     Return
                 End If
 
-                target = CloneWithoutColumn(_guidFamilyDetail, "RvtPath")
+                target = EnsureNoRvtPath(_guidFamilyDetail)
                 sheet = "FamilyParamDetail"
             Else
                 If _guidProject Is Nothing OrElse _guidProject.Rows.Count = 0 Then
                     SendToWeb("guid:error", New With {.message = "저장할 Project 결과가 없습니다."})
                     Return
                 End If
-                target = _guidProject
+                target = EnsureNoRvtPath(_guidProject)
                 sheet = "ProjectParams"
             End If
 
@@ -200,7 +200,7 @@ Namespace UI.Hub
             End If
 
             Dim filtered = FilterFamilyDetail(_guidFamilyDetail, rvtPath, familyName)
-            Dim shaped As TablePayload = ShapeTable(filtered, Nothing)
+            Dim shaped As TablePayload = ShapeTable(filtered, New HashSet(Of String)(StringComparer.OrdinalIgnoreCase) From {"RvtPath"})
 
             SendToWeb("guid:family-detail", New With {
                 .runId = _guidRunId,
@@ -255,6 +255,14 @@ Namespace UI.Hub
                 clone.Rows.Add(nr)
             Next
             Return clone
+        End Function
+
+        Private Function EnsureNoRvtPath(dt As DataTable) As DataTable
+            If dt Is Nothing Then Return Nothing
+            If dt.Columns.Contains("RvtPath") Then
+                Return CloneWithoutColumn(dt, "RvtPath")
+            End If
+            Return dt
         End Function
 
         Private Shared Function SafeStrGuid(o As Object) As String

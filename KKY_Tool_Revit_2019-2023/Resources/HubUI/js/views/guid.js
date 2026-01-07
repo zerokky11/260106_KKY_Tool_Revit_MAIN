@@ -98,11 +98,11 @@ export function renderGuid(root) {
     const tabPanels = div('guid-tab-panels');
     const tabPanelProject = div('guid-tab-panel');
     const projWrap = div('guid-detail-wrap');
-    const projNavPane = div('guid-detail-nav feature-results-panel');
+    const projNavPane = div('guid-detail-nav feature-results-panel guid-scroll-box');
     const projNavList = document.createElement('ul'); projNavList.className = 'guid-nav-list';
     projNavPane.append(projNavList);
     const projDetailPane = div('guid-detail-pane');
-    const projTableWrap = div('guid-table-wrap');
+    const projTableWrap = div('guid-table-wrap guid-scroll-box');
     const projTable = document.createElement('table'); projTable.className = 'guid-table';
     const projHead = document.createElement('thead');
     const projBody = document.createElement('tbody');
@@ -114,12 +114,12 @@ export function renderGuid(root) {
 
     const tabPanelFamily = div('guid-tab-panel is-hidden');
     const detailWrap = div('guid-detail-wrap');
-    const navPane = div('guid-detail-nav feature-results-panel');
+    const navPane = div('guid-detail-nav feature-results-panel guid-scroll-box');
     const navList = document.createElement('ul'); navList.className = 'guid-nav-list';
     navPane.append(navList);
     const detailPane = div('guid-detail-pane');
     const filterBar = buildFamilyFilter();
-    const detailTableWrap = div('guid-table-wrap');
+    const detailTableWrap = div('guid-table-wrap guid-scroll-box');
     const detailTable = document.createElement('table'); detailTable.className = 'guid-table';
     const detailHead = document.createElement('thead');
     const detailBody = document.createElement('tbody');
@@ -427,8 +427,8 @@ export function renderGuid(root) {
             li.append(btn);
             projNavList.append(li);
         });
-        buildHead(projHead, state.project.columns, new Set());
-        paintVirtualRows(projBody, state.project.columns, filteredProjectRows(), new Set());
+        buildHead(projHead, state.project.columns, new Set(['RvtPath']));
+        paintVirtualRows(projBody, state.project.columns, filteredProjectRows(), new Set(['RvtPath']));
     }
 
     function paintFamily() {
@@ -526,7 +526,7 @@ export function renderGuid(root) {
             const path = idxPath >= 0 ? safe(row[idxPath]) : '';
             const famName = idxFam >= 0 ? safe(row[idxFam]) : '';
             const shared = idxShared >= 0 ? safe(row[idxShared]) : '';
-            const docMatch = !state.activeFamilyDoc || ((path || '') === state.activeFamilyDoc);
+            const docMatch = idxPath < 0 || !state.activeFamilyDoc || ((path || '') === state.activeFamilyDoc);
             const famMatch = !state.activeFamily || (famName === state.activeFamily);
             const filterMatch = state.familyFilter === 'all' ||
                 (state.familyFilter === 'shared' && shared === 'Y') ||
@@ -570,7 +570,9 @@ export function renderGuid(root) {
                 columns.forEach((c, ci) => {
                     if (hidden.has(c)) return;
                     const td = document.createElement('td');
-                    td.textContent = safe(row[ci]);
+                    const text = safe(row[ci]);
+                    td.textContent = text;
+                    td.title = text;
                     tr.append(td);
                 });
                 frag.append(tr);
