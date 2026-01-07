@@ -45,7 +45,7 @@ Namespace Services
         Public Shared Function Run(app As UIApplication,
                                    mode As Integer,
                                    rvtPaths As IEnumerable(Of String),
-                                   progress As Action(Of Integer, String),
+                                   progress As Action(Of Double, String),
                                    Optional warn As Action(Of String) = Nothing,
                                    Optional includeFamily As Boolean = False,
                                    Optional includeAnnotation As Boolean = False) As RunResult
@@ -252,7 +252,7 @@ Namespace Services
             Return value
         End Function
 
-        Private Shared Sub ReportProgress(cb As Action(Of Integer, String),
+        Private Shared Sub ReportProgress(cb As Action(Of Double, String),
                                           totalFiles As Integer,
                                           fileIndex As Integer,
                                           docProgress As Double,
@@ -261,7 +261,7 @@ Namespace Services
             Dim safeTotal As Integer = Math.Max(1, totalFiles)
             Dim idx As Integer = Math.Max(0, fileIndex - 1)
             Dim ratio As Double = (idx + Math.Max(0.0R, Math.Min(1.0R, docProgress))) / safeTotal
-            Dim pct As Integer = CInt(Math.Max(0, Math.Min(100, Math.Round(ratio * 100.0R))))
+            Dim pct As Double = Math.Max(0, Math.Min(100, Math.Round(ratio * 1000.0R) / 10.0R))
             cb(pct, text)
         End Sub
 
@@ -598,9 +598,7 @@ Namespace Services
                     If Not moved Then Exit While
 
                     idx += 1
-                    If progress IsNot Nothing AndAlso (idx = 1 OrElse idx = total OrElse idx Mod 120 = 0) Then
-                        progress(idx, Math.Max(1, total))
-                    End If
+                    If progress IsNot Nothing Then progress(idx, Math.Max(1, total))
 
                     Dim def As Definition = Nothing
                     Dim binding As ElementBinding = Nothing
@@ -708,9 +706,7 @@ Namespace Services
                 For Each fam As Family In fams
                     idx += 1
 
-                    If progress IsNot Nothing AndAlso (idx = 1 OrElse idx = total OrElse idx Mod 40 = 0) Then
-                        progress(idx, total, fam.Name)
-                    End If
+                    If progress IsNot Nothing Then progress(idx, total, fam.Name)
 
                     Dim famName = fam.Name
                     Dim famCat = ""

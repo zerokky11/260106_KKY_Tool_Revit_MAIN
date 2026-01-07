@@ -34,23 +34,29 @@ export function renderGuid(root) {
     const page = div('feature-shell guid-page');
 
     // Header
-    const header = div('feature-header');
-    const heading = div('feature-heading');
-    heading.innerHTML = `
+    const header = div('feature-header guid-header');
+    const headerLeft = div('feature-heading');
+    headerLeft.innerHTML = `
       <span class="feature-kicker">GUID Audit</span>
       <h2 class="feature-title">공유 파라미터 GUID 검토</h2>
       <p class="feature-sub">프로젝트/패밀리 파라미터 GUID를 공유 파라미터 파일과 비교합니다.</p>`;
 
+    const headerRight = div('guid-header-right');
+    const optionRow = div('guid-options');
     const modeToggle = buildModeToggle();
     const annotationToggle = buildAnnotationToggle();
+    optionRow.append(modeToggle, annotationToggle);
+
+    const actions = div('guid-actions');
     const runBtn = cardBtn('검토 시작', onRun);
     const exportBtn = cardBtn('엑셀 내보내기', onExport);
+    runBtn.classList.add('btn-primary');
+    exportBtn.classList.add('btn-outline');
     exportBtn.disabled = true;
-    const actions = div('feature-actions');
-    const rightActions = div('guid-header-actions');
-    rightActions.append(modeToggle, annotationToggle, runBtn, exportBtn);
-    actions.append(rightActions);
-    header.append(heading, actions);
+    actions.append(runBtn, exportBtn);
+
+    headerRight.append(optionRow, actions);
+    header.append(headerLeft, headerRight);
     page.append(header);
 
     const body = div('guid-body');
@@ -290,42 +296,44 @@ export function renderGuid(root) {
 
     function buildModeToggle() {
         const wrap = div('guid-mode');
-        const base = document.createElement('div');
-        base.className = 'guid-mode-base';
-        base.innerHTML = '<div class="mode-primary"><strong>Project(RVT) Parameter</strong> (기본)</div>';
-        const famLabel = document.createElement('label');
-        famLabel.className = 'guid-checkbox';
-        const famCk = document.createElement('input');
-        famCk.type = 'checkbox';
-        famCk.checked = !!state.includeFamily;
-        famCk.onchange = () => { state.includeFamily = !!famCk.checked; syncAnnotationToggle(); syncTabState(); };
-        const famSpan = document.createElement('span');
-        famSpan.textContent = 'Family(RFA) Parameter 추가 검토';
-        famLabel.append(famCk, famSpan);
-        wrap.append(base, famLabel);
-        wrap.sync = () => {
-            famCk.checked = !!state.includeFamily;
+        const projBadge = document.createElement('span');
+        projBadge.className = 'pill-tab is-active guid-badge';
+        projBadge.textContent = 'Project(RVT) Parameter · 기본';
+
+        const famToggle = document.createElement('button');
+        famToggle.type = 'button';
+        famToggle.className = 'pill-tab';
+        const sync = () => {
+            famToggle.classList.toggle('is-active', !!state.includeFamily);
+            famToggle.textContent = state.includeFamily ? 'Family(RFA) Parameter ON' : 'Family(RFA) Parameter 추가 검토';
         };
+        famToggle.onclick = () => { state.includeFamily = !state.includeFamily; syncAnnotationToggle(); syncTabState(); sync(); };
+        sync();
+
+        wrap.append(projBadge, famToggle);
+        wrap.sync = sync;
         return wrap;
     }
 
     function buildAnnotationToggle() {
         const wrap = div('guid-annotation');
-        const label = document.createElement('label');
-        label.className = 'guid-checkbox';
-        const ck = document.createElement('input');
-        ck.type = 'checkbox';
-        ck.checked = !!state.includeAnnotation;
-        ck.onchange = () => { state.includeAnnotation = !!ck.checked; };
-        const span = document.createElement('span');
-        span.textContent = 'Annotation 포함';
-        label.append(ck, span);
-        wrap.append(label);
-        wrap.sync = function () {
-            ck.checked = !!state.includeAnnotation;
-            ck.disabled = !state.includeFamily;
-            if (!state.includeFamily) ck.checked = false;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pill-tab';
+        const sync = () => {
+            const on = !!state.includeAnnotation && !!state.includeFamily;
+            btn.classList.toggle('is-active', on);
+            btn.disabled = !state.includeFamily;
+            btn.textContent = on ? 'Annotation 포함 ON' : 'Annotation 포함';
         };
+        btn.onclick = () => {
+            if (!state.includeFamily) return;
+            state.includeAnnotation = !state.includeAnnotation;
+            sync();
+        };
+        sync();
+        wrap.append(btn);
+        wrap.sync = sync;
         return wrap;
     }
 

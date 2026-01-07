@@ -20,6 +20,8 @@ Namespace UI.Hub
         Private _guidRunId As String = String.Empty
         Private _guidFamilyIndex As DataTable = Nothing
         Private _guidIncludeFamily As Boolean = False
+        Private _guidLastPct As Double = -1.0R
+        Private _guidLastText As String = String.Empty
 
         Private NotInheritable Class TablePayload
             Public Property columns As List(Of String)
@@ -75,6 +77,8 @@ Namespace UI.Hub
                 _guidRunId = String.Empty
                 _guidIncludeFamily = includeFamily
                 _guidMode = mode
+                _guidLastPct = -1.0R
+                _guidLastText = String.Empty
 
                 Dim res = GuidAuditService.Run(app, mode, rvtPaths, AddressOf ReportGuidProgress,
                                                Sub(msg As String)
@@ -210,8 +214,12 @@ Namespace UI.Hub
         ' -----------------------------
         ' 유틸
         ' -----------------------------
-        Private Sub ReportGuidProgress(pct As Integer, text As String)
+        Private Sub ReportGuidProgress(pct As Double, text As String)
+            Dim changed As Boolean = (pct <> _guidLastPct) OrElse (Not String.Equals(text, _guidLastText, StringComparison.Ordinal))
+            If Not changed Then Return
             SendToWeb("guid:progress", New With {.pct = pct, .text = text})
+            _guidLastPct = pct
+            _guidLastText = text
         End Sub
 
         Private Function ShapeTable(dt As DataTable, skipCols As HashSet(Of String)) As TablePayload
