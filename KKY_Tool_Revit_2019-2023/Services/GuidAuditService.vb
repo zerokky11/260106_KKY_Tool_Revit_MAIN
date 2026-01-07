@@ -569,6 +569,23 @@ Namespace Services
                 dt.Columns.Add("Result", GetType(String))
                 dt.Columns.Add("Notes", GetType(String))
 
+                Dim speByName As New Dictionary(Of String, List(Of Guid))(StringComparer.OrdinalIgnoreCase)
+                Try
+                    For Each spe As SharedParameterElement In New FilteredElementCollector(doc).OfClass(GetType(SharedParameterElement)).Cast(Of SharedParameterElement)()
+                        Dim key As String = NormalizeName(SafeParamElementName(spe))
+                        Dim g As Guid = Guid.Empty
+                        Try
+                            g = spe.GuidValue
+                        Catch
+                            g = Guid.Empty
+                        End Try
+                        If g = Guid.Empty Then Continue For
+                        If Not speByName.ContainsKey(key) Then speByName(key) = New List(Of Guid)()
+                        speByName(key).Add(g)
+                    Next
+                Catch
+                End Try
+
                 Dim bindings As BindingMap = doc.ParameterBindings
                 Dim iter As DefinitionBindingMapIterator = bindings.ForwardIterator()
                 iter.Reset()
@@ -623,26 +640,42 @@ Namespace Services
                     Dim notes As String = ""
 
                     Dim isShared As Boolean = TypeOf def Is ExternalDefinition
+                    Dim docGuid As Guid = Guid.Empty
+                    Dim docGuids As List(Of Guid) = Nothing
                     If isShared Then
                         kind = "Shared"
-                        Dim gProj As Guid = Guid.Empty
                         Try
-                            gProj = DirectCast(def, ExternalDefinition).GUID
+                            docGuid = DirectCast(def, ExternalDefinition).GUID
                         Catch
-                            gProj = Guid.Empty
+                            docGuid = Guid.Empty
                         End Try
-                        projGuid = If(gProj = Guid.Empty, "", gProj.ToString())
+                        If docGuid <> Guid.Empty Then docGuids = New List(Of Guid)() From {docGuid}
+                    Else
+                        Dim list As List(Of Guid) = Nothing
+                        If speByName.TryGetValue(normName, list) Then
+                            isShared = True
+                            kind = "Shared"
+                            docGuids = New List(Of Guid)(list)
+                            docGuid = docGuids.FirstOrDefault()
+                            If docGuids.Count > 1 Then notes = "Doc 동일 이름 GUID 여러 개"
+                        End If
+                    End If
 
+                    If isShared Then
+                        projGuid = If(docGuid = Guid.Empty, "", docGuid.ToString())
                         Dim fileGuids As List(Of Guid) = Nothing
                         If fileMap IsNot Nothing AndAlso fileMap.TryGetValue(normName, fileGuids) Then
                             fileGuid = String.Join("; ", fileGuids.Select(Function(x) x.ToString()).Distinct().ToArray())
-                            If fileGuids.Count > 1 Then notes = "Shared parameter file에 동일 이름 GUID 여러 개"
-
-                            If gProj <> Guid.Empty AndAlso fileGuids.Any(Function(x) x = gProj) Then
-                                result = If(fileGuids.Count > 1, "OK(MULTI_IN_FILE)", "OK")
-                            Else
-                                result = "MISMATCH"
-                            End If
+                            If fileGuids.Count > 1 Then notes = AppendNote(notes, "Shared parameter file에 동일 이름 GUID 여러 개")
+                            If docGuids Is Nothing Then docGuids = New List(Of Guid)()
+                            Dim hit As Boolean = False
+                            For Each g In fileGuids
+                                If docGuids.Any(Function(x) x = g) Then
+                                    hit = True
+                                    Exit For
+                                End If
+                            Next
+                            result = If(hit, If(fileGuids.Count > 1, "OK(MULTI_IN_FILE)", "OK"), "MISMATCH")
                         Else
                             result = "NOT_FOUND_IN_FILE"
                         End If
@@ -663,6 +696,12 @@ Namespace Services
                 End While
 
                 Return dt
+            End Function
+
+            Private Shared Function AppendNote(existing As String, note As String) As String
+                If String.IsNullOrWhiteSpace(existing) Then Return note
+                If String.IsNullOrWhiteSpace(note) Then Return existing
+                Return existing & "; " & note
             End Function
 
             Public Shared Function RunFamilyAudit(doc As Document,
