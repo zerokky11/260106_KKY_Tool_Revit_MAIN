@@ -119,13 +119,40 @@ export function renderGuid(root) {
     navPane.append(navList);
     const detailPane = div('guid-detail-pane');
     const filterBar = buildFamilyFilter();
+    const familyUserSection = div('guid-section');
+    const familyUserHeader = div('guid-section-header');
+    const familyUserTitle = document.createElement('div'); familyUserTitle.className = 'guid-section-title'; familyUserTitle.textContent = '사용자 파라미터';
+    const familyUserCount = document.createElement('span'); familyUserCount.className = 'guid-section-count'; familyUserCount.textContent = '0';
+    familyUserHeader.append(familyUserTitle, familyUserCount);
+    const familyEmpty = div('guid-empty'); familyEmpty.textContent = '파라미터 없음';
     const detailTableWrap = div('guid-table-wrap guid-scroll-box');
     const detailTable = document.createElement('table'); detailTable.className = 'guid-table';
     const detailHead = document.createElement('thead');
     const detailBody = document.createElement('tbody');
     detailTable.append(detailHead, detailBody);
     detailTableWrap.append(detailTable);
-    detailPane.append(filterBar, detailTableWrap);
+    familyUserSection.append(familyUserHeader, familyEmpty, detailTableWrap);
+
+    const builtSection = div('guid-section');
+    const builtHeader = div('guid-section-header');
+    const builtTitle = document.createElement('div'); builtTitle.className = 'guid-section-title'; builtTitle.textContent = 'Built-in 파라미터';
+    const builtCount = document.createElement('span'); builtCount.className = 'guid-section-count'; builtCount.textContent = '0';
+    const builtToggle = document.createElement('button'); builtToggle.type = 'button'; builtToggle.className = 'pill-tab'; builtToggle.textContent = '펼치기';
+    builtHeader.append(builtTitle, builtCount, builtToggle);
+    const builtTableWrap = div('guid-table-wrap guid-scroll-box');
+    const builtTable = document.createElement('table'); builtTable.className = 'guid-table';
+    const builtHead = document.createElement('thead');
+    const builtBody = document.createElement('tbody');
+    builtTable.append(builtHead, builtBody);
+    builtTableWrap.append(builtTable);
+    builtSection.append(builtHeader, builtTableWrap);
+    detailPane.append(filterBar, familyUserSection, builtSection);
+
+    builtToggle.onclick = () => {
+        builtSection.classList.toggle('is-open');
+        builtToggle.textContent = builtSection.classList.contains('is-open') ? '접기' : '펼치기';
+        paintFamily();
+    };
     detailWrap.append(navPane, detailPane);
     tabPanelFamily.append(detailWrap);
 
@@ -437,6 +464,11 @@ export function renderGuid(root) {
             navList.innerHTML = '<li class="guid-nav-empty">Family(RFA) Parameter 추가 검토를 선택 후 실행하세요.</li>';
             detailHead.innerHTML = '';
             detailBody.innerHTML = '';
+            builtHead.innerHTML = '';
+            builtBody.innerHTML = '';
+            familyEmpty.style.display = 'none';
+            detailTableWrap.style.display = 'none';
+            builtTableWrap.style.display = 'none';
             if (filterBar && typeof filterBar.sync === 'function') filterBar.sync();
             return;
         }
@@ -447,6 +479,11 @@ export function renderGuid(root) {
             navList.append(empty);
             detailHead.innerHTML = '';
             detailBody.innerHTML = '';
+            builtHead.innerHTML = '';
+            builtBody.innerHTML = '';
+            familyEmpty.style.display = 'none';
+            detailTableWrap.style.display = 'none';
+            builtTableWrap.style.display = 'none';
             if (filterBar && typeof filterBar.sync === 'function') filterBar.sync();
             return;
         }
@@ -489,8 +526,23 @@ export function renderGuid(root) {
             docItem.append(famList);
             navList.append(docItem);
         });
+        const { userRows, builtRows } = splitFamilyRows();
+        familyUserCount.textContent = String(userRows.length || 0);
+        builtCount.textContent = String(builtRows.length || 0);
+        familyEmpty.style.display = userRows.length ? 'none' : 'block';
+        detailTableWrap.style.display = userRows.length ? 'block' : 'none';
         buildHead(detailHead, state.familyDetail.columns, HIDDEN_DETAIL_COLS);
-        paintVirtualRows(detailBody, state.familyDetail.columns, filteredFamilyRows(), HIDDEN_DETAIL_COLS);
+        paintVirtualRows(detailBody, state.familyDetail.columns, userRows, HIDDEN_DETAIL_COLS);
+
+        const builtOpen = builtSection.classList.contains('is-open');
+        builtTableWrap.style.display = builtOpen ? 'block' : 'none';
+        if (builtOpen) {
+            buildHead(builtHead, state.familyDetail.columns, HIDDEN_DETAIL_COLS);
+            paintVirtualRows(builtBody, state.familyDetail.columns, builtRows, HIDDEN_DETAIL_COLS);
+        } else {
+            builtHead.innerHTML = '';
+            builtBody.innerHTML = '';
+        }
     }
 
     function onRequestFamilyDetail(rvtPath, familyName) {
@@ -521,18 +573,38 @@ export function renderGuid(root) {
         if (!state.familyDetail.rows.length) return [];
         const idxPath = colIndex('RvtPath');
         const idxFam = colIndex('FamilyName');
+        const idxKind = colIndex('ParamKind');
         const idxShared = colIndex('IsShared');
         return state.familyDetail.rows.filter(row => {
             const path = idxPath >= 0 ? safe(row[idxPath]) : '';
             const famName = idxFam >= 0 ? safe(row[idxFam]) : '';
+            const kind = idxKind >= 0 ? safe(row[idxKind]) : '';
             const shared = idxShared >= 0 ? safe(row[idxShared]) : '';
             const docMatch = idxPath < 0 || !state.activeFamilyDoc || ((path || '') === state.activeFamilyDoc);
             const famMatch = !state.activeFamily || (famName === state.activeFamily);
             const filterMatch = state.familyFilter === 'all' ||
-                (state.familyFilter === 'shared' && shared === 'Y') ||
-                (state.familyFilter === 'family' && shared === 'N');
+                (state.familyFilter === 'shared' && (kind === 'Shared' || shared === 'Y')) ||
+                (state.familyFilter === 'family' && (kind === 'Family' || shared === 'N'));
             return docMatch && famMatch && filterMatch;
         });
+    }
+
+    function splitFamilyRows() {
+        const rows = filteredFamilyRows();
+        const idxKind = colIndex('ParamKind');
+        const userRows = [];
+        const builtRows = [];
+        rows.forEach(row => {
+            const kind = idxKind >= 0 ? safe(row[idxKind]) : '';
+            if (kind === 'BuiltIn') {
+                builtRows.push(row);
+            } else if (kind === 'Shared' || kind === 'Family') {
+                userRows.push(row);
+            } else {
+                userRows.push(row);
+            }
+        });
+        return { userRows, builtRows };
     }
 
     function colIndex(name) {

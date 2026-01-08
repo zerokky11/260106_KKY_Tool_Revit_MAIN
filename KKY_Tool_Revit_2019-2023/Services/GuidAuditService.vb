@@ -730,6 +730,7 @@ Namespace Services
                 dtDet.Columns.Add("FamilyName", GetType(String))
                 dtDet.Columns.Add("FamilyCategory", GetType(String))
                 dtDet.Columns.Add("ParamName", GetType(String))
+                dtDet.Columns.Add("ParamKind", GetType(String))
                 dtDet.Columns.Add("IsShared", GetType(String))
                 dtDet.Columns.Add("FamilyGuid", GetType(String))
                 dtDet.Columns.Add("FileGuid", GetType(String))
@@ -838,8 +839,8 @@ Namespace Services
                             Try : pName = fp.Definition.Name : Catch : pName = "" : End Try
                             Dim normParamName As String = NormalizeName(pName)
 
-                            Dim isSharedBool As Boolean = False
-                            Try : isSharedBool = fp.IsShared : Catch : isSharedBool = False : End Try
+                            Dim paramKind As String = GetFamilyParamKind(fp)
+                            Dim isSharedBool As Boolean = String.Equals(paramKind, "Shared", StringComparison.OrdinalIgnoreCase)
                             If isSharedBool Then sharedCount += 1
 
                             Dim famGuid As String = ""
@@ -868,6 +869,10 @@ Namespace Services
                             res = "GUID_FAIL"
                             notes = "FamilyParameter GUID 추출 실패"
                         End If
+                    ElseIf String.Equals(paramKind, "BuiltIn", StringComparison.OrdinalIgnoreCase) Then
+                        res = "BUILTIN"
+                    ElseIf String.Equals(paramKind, "Family", StringComparison.OrdinalIgnoreCase) Then
+                        res = "FAMILY_PARAM"
                     Else
                         res = "FAMILY_PARAM"
                     End If
@@ -888,6 +893,7 @@ Namespace Services
                     End If
 
                     AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, pName,
+                                 paramKind,
                                  If(isSharedBool, "Y", "N"),
                                  famGuid, fileGuid, res, notes)
                         Next
@@ -926,6 +932,7 @@ Namespace Services
                                             famName As String,
                                             famCat As String,
                                             pName As String,
+                                            paramKind As String,
                                             isShared As String,
                                             famGuid As String,
                                             fileGuid As String,
@@ -937,6 +944,7 @@ Namespace Services
                 r("FamilyName") = If(famName, "")
                 r("FamilyCategory") = If(famCat, "")
                 r("ParamName") = If(pName, "")
+                r("ParamKind") = If(paramKind, "")
                 r("IsShared") = If(isShared, "")
                 r("FamilyGuid") = If(famGuid, "")
                 r("FileGuid") = If(fileGuid, "")
@@ -944,6 +952,17 @@ Namespace Services
                 r("Notes") = If(notes, "")
                 dt.Rows.Add(r)
             End Sub
+
+            Private Shared Function GetFamilyParamKind(fp As FamilyParameter) As String
+                If fp Is Nothing Then Return "None"
+                Dim shared As Boolean = False
+                Try : shared = fp.IsShared : Catch : shared = False : End Try
+                If shared Then Return "Shared"
+                Dim idVal As Integer = 0
+                Try : idVal = fp.Id.IntegerValue : Catch : idVal = 0 : End Try
+                If idVal < 0 Then Return "BuiltIn"
+                Return "Family"
+            End Function
 
             Private Shared Function SafeParamElementName(pe As Element) As String
                 Try
