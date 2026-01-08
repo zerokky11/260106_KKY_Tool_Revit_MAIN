@@ -266,6 +266,20 @@
   min-height: 320px;
 }
 
+.guid-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  padding: 16px;
+  color: var(--emptyText);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  font-weight: 600;
+  background: transparent;
+  text-align: center;
+}
+
 .guid-tab-panel {
   display: flex;
   flex-direction: column;

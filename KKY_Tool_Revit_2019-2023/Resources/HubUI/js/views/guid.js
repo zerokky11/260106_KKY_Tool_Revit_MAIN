@@ -26,6 +26,7 @@ export function renderGuid(root) {
         activeTab: 'project',
         busy: false,
         runId: '',
+        hasRun: false,
         includeFamily: false,
         includeAnnotation: false,
         familyFilter: 'all'
@@ -99,6 +100,10 @@ export function renderGuid(root) {
     tabHead.append(tabHeadLeft, tabHeadRight);
     tabs.append(tabHead);
 
+    const emptyState = div('guid-empty-state');
+    emptyState.textContent = 'RVT 등록 후 검토 시작해주세요';
+    tabs.append(emptyState);
+
     const tabPanels = div('guid-tab-panels');
     const tabPanelProject = div('guid-tab-panel');
     const projWrap = div('guid-detail-wrap');
@@ -171,6 +176,7 @@ export function renderGuid(root) {
     syncRvtActionState();
     syncModeToggle();
     syncAnnotationToggle();
+    syncResultState();
 
     // Host events
     onHost('guid:files', ({ paths }) => {
@@ -208,6 +214,7 @@ export function renderGuid(root) {
         const proj = payload?.project || {};
         const famNav = payload?.family || payload?.familyIndex || {};
         state.runId = payload?.runId || '';
+        state.hasRun = true;
         state.includeFamily = !!payload?.includeFamily;
         state.includeAnnotation = !!payload?.includeAnnotation;
         state.project = {
@@ -230,6 +237,7 @@ export function renderGuid(root) {
         paintProject();
         paintFamily();
         syncTabState();
+        syncResultState();
         toast('검토 완료', 'ok');
     });
 
@@ -244,6 +252,7 @@ export function renderGuid(root) {
         updateTabCounts();
         paintFamily();
         syncTabState();
+        syncResultState();
     });
 
     onHost('guid:warn', ({ message }) => {
@@ -669,6 +678,12 @@ export function renderGuid(root) {
         }
         exportBtn.disabled = !hasRowsForExport();
         updateTabCounts();
+    }
+
+    function syncResultState() {
+        const showResults = state.hasRun;
+        tabPanels.style.display = showResults ? '' : 'none';
+        emptyState.style.display = showResults ? 'none' : 'flex';
     }
 
     function syncAnnotationToggle() {
