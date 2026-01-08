@@ -1,4 +1,5 @@
 import { clear, div, tdText, toast, showExcelSavedDialog, chooseExcelMode } from '../core/dom.js';
+import { createRvtTable, renderRvtRows, getRvtName } from './rvtTable.js';
 import { ProgressDialog } from '../core/progress.js';
 import { post, onHost } from '../core/bridge.js';
 
@@ -75,10 +76,7 @@ export function renderExport(root) {
     const unitToggle = buildUnitToggle();
     lbar.append(addFilesBtn, pick, removeBtn, clearBtn, preview, save);
     const listWrap = div('segmentpms-rvtlist');
-    const tblWrap = document.createElement('table'); tblWrap.className = 'segmentpms-table export-rvt-table';
-    const filesHead = document.createElement('thead');
-    const filesBody = document.createElement('tbody');
-    tblWrap.append(filesHead, filesBody);
+    const { table: tblWrap, tbody: filesBody, master: filesMaster } = createRvtTable();
     listWrap.append(tblWrap);
     const info = div('segmentpms-summary'); info.textContent = '파일 0개';
     left.append(lbar, listWrap, unitToggle, info);
@@ -145,26 +143,28 @@ export function renderExport(root) {
     function renderFiles() {
         while (filesBody.firstChild) filesBody.removeChild(filesBody.firstChild);
         const allChecked = state.files.length && state.files.every(f => f.checked);
-        filesHead.innerHTML = '';
-        const headRow = document.createElement('tr');
-        const masterCell = document.createElement('th');
-        const master = document.createElement('input'); master.type = 'checkbox'; master.checked = allChecked;
-        master.onchange = () => { state.files = state.files.map(f => ({ ...f, checked: master.checked })); renderFiles(); };
-        masterCell.append(master);
-        headRow.append(masterCell);
-        ['파일 경로'].forEach(text => { const th = document.createElement('th'); th.textContent = text; headRow.append(th); });
-        filesHead.append(headRow);
+        filesMaster.checked = allChecked;
+        filesMaster.disabled = state.files.length === 0;
+        filesMaster.onchange = () => { state.files = state.files.map(f => ({ ...f, checked: filesMaster.checked })); renderFiles(); };
 
-        state.files.forEach((f, idx) => {
-          const row = document.createElement('tr');
-          const ckCell = document.createElement('td');
-          const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = !!f.checked;
-          ck.onchange = () => { state.files[idx].checked = ck.checked; updateSelectionSummary(); syncPreviewState(); syncRemoveState(); };
-          ckCell.append(ck); row.append(ckCell);
-          const pathCell = document.createElement('td'); pathCell.className = 'segmentpms-path-cell'; pathCell.textContent = f.path || f.rel || f.name || '—'; pathCell.title = f.path || f.rel || f.name || '';
-          row.append(pathCell);
-          filesBody.append(row);
+        const rows = state.files.map((f, idx) => {
+          const path = f.path || f.rel || f.name || '';
+          const name = f.name || getRvtName(path);
+          return {
+            checked: !!f.checked,
+            index: idx + 1,
+            name,
+            path,
+            title: path,
+            onToggle: (checked) => {
+              state.files[idx].checked = checked;
+              updateSelectionSummary();
+              syncPreviewState();
+              syncRemoveState();
+            }
+          };
         });
+        renderRvtRows(filesBody, rows);
         updateSelectionSummary();
         syncPreviewState();
         syncRemoveState();

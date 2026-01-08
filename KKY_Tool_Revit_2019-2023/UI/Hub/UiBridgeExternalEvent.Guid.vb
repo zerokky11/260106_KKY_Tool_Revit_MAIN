@@ -141,30 +141,23 @@ Namespace UI.Hub
             Catch
             End Try
 
-            Dim target As DataTable = Nothing
-            Dim sheet As String = "Result"
-
-            If which = "family" Then
-                If Not _guidIncludeFamily OrElse _guidFamilyDetail Is Nothing OrElse _guidFamilyDetail.Rows.Count = 0 Then
-                    SendToWeb("guid:error", New With {.message = "저장할 Family 결과가 없습니다."})
-                    Return
-                End If
-
-                target = EnsureNoRvtPath(_guidFamilyDetail)
-                sheet = "FamilyParamDetail"
-            Else
-                If _guidProject Is Nothing OrElse _guidProject.Rows.Count = 0 Then
-                    SendToWeb("guid:error", New With {.message = "저장할 Project 결과가 없습니다."})
-                    Return
-                End If
-                target = EnsureNoRvtPath(_guidProject)
-                sheet = "ProjectParams"
-            End If
-
             Try
+                Dim projectTable As DataTable = EnsureNoRvtPath(GuidAuditService.PrepareExportTable(_guidProject, 1))
+                Dim familyTable As DataTable = EnsureNoRvtPath(GuidAuditService.PrepareExportTable(_guidFamilyDetail, 2))
+                Dim sheetList As New List(Of KeyValuePair(Of String, DataTable))()
+
+                If which = "family" Then
+                    sheetList.Add(New KeyValuePair(Of String, DataTable)("Family 검토결과", familyTable))
+                ElseIf which = "all" Then
+                    sheetList.Add(New KeyValuePair(Of String, DataTable)("RVT 검토결과", projectTable))
+                    sheetList.Add(New KeyValuePair(Of String, DataTable)("Family 검토결과", familyTable))
+                Else
+                    sheetList.Add(New KeyValuePair(Of String, DataTable)("RVT 검토결과", projectTable))
+                End If
+
                 Dim requestedAutoFit As Boolean = String.Equals(excelMode, "normal", StringComparison.OrdinalIgnoreCase)
                 LogAutoFitDecision(requestedAutoFit, "GuidAuditExport")
-                Dim saved = GuidAuditService.Export(target, sheet, excelMode, "guid:progress")
+                Dim saved = GuidAuditService.ExportMulti(sheetList, excelMode, "guid:progress")
                 If String.IsNullOrWhiteSpace(saved) Then
                     SendToWeb("guid:error", New With {.message = "엑셀 내보내기가 취소되었습니다."})
                     Return

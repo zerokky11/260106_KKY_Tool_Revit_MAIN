@@ -208,6 +208,34 @@
   gap: 12px;
 }
 
+.guid-results-head {
+  height: 44px;
+  flex-wrap: nowrap;
+}
+
+.guid-results-tabs,
+.guid-results-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 0;
+}
+
+.guid-results-filters {
+  justify-content: flex-end;
+}
+
+.guid-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guid-filter-bar.is-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .guid-results .pill-tabs {
   margin-bottom: 0;
 }
