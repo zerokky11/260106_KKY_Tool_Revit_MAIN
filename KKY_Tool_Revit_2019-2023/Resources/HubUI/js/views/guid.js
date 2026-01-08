@@ -76,8 +76,12 @@ export function renderGuid(root) {
 
     rvtHeader.append(rvtTitle, rvtActions);
     const rvtTableWrap = div('segmentpms-rvtlist guid-rvt-wrap');
-    const rvtTable = document.createElement('table'); rvtTable.className = 'segmentpms-table guid-rvt-table';
-    rvtTable.innerHTML = '<thead><tr><th><input type="checkbox"></th><th>파일 경로</th></tr></thead><tbody></tbody>';
+    const rvtTable = document.createElement('table'); rvtTable.className = 'segmentpms-table';
+    rvtTable.style.tableLayout = 'fixed';
+    const rvtColgroup = document.createElement('colgroup');
+    rvtColgroup.innerHTML = '<col style="width:40px"><col>';
+    rvtTable.append(rvtColgroup);
+    rvtTable.innerHTML += '<thead><tr><th><input type="checkbox"></th><th>파일 경로</th></tr></thead><tbody></tbody>';
     const rvtBody = rvtTable.querySelector('tbody');
     rvtTableWrap.append(rvtTable);
     const rvtSummary = div('segmentpms-summary'); rvtSummary.textContent = '파일 0개';
@@ -89,7 +93,7 @@ export function renderGuid(root) {
     const tabHead = div('feature-results-head');
     const tabBtns = div('pill-tabs');
     const btnTabProject = document.createElement('button'); btnTabProject.type = 'button'; btnTabProject.className = 'pill-tab is-active'; btnTabProject.innerHTML = `<span class="pill-label">RVT 검토결과</span><span class="pill-count">0</span>`;
-    const btnTabFamily = document.createElement('button'); btnTabFamily.type = 'button'; btnTabFamily.className = 'pill-tab'; btnTabFamily.innerHTML = `<span class="pill-label">Family(RFA) Parameter</span><span class="pill-count">0</span>`;
+    const btnTabFamily = document.createElement('button'); btnTabFamily.type = 'button'; btnTabFamily.className = 'pill-tab'; btnTabFamily.innerHTML = `<span class="pill-label">Family 검토결과</span><span class="pill-count">0</span>`;
     tabBtns.append(btnTabProject, btnTabFamily);
     tabHead.append(tabBtns);
     tabs.append(tabHead);
@@ -112,11 +116,12 @@ export function renderGuid(root) {
     tabPanelProject.append(projWrap);
 
     const tabPanelFamily = div('guid-tab-panel is-hidden');
-    const detailWrap = div('guid-detail-wrap');
+    const detailWrap = div('guid-family-split');
+    const leftHeader = div('guid-family-header guid-family-left-header');
+    const rightHeader = div('guid-family-header guid-family-right-header');
     const navPane = div('guid-detail-nav feature-results-panel guid-scroll-box');
     const navList = document.createElement('ul'); navList.className = 'guid-nav-list';
     navPane.append(navList);
-    const detailPane = div('guid-detail-pane');
     const filterBar = buildFamilyFilter();
     const familyUserSection = div('guid-section');
     const familyUserHeader = div('guid-section-header');
@@ -130,7 +135,7 @@ export function renderGuid(root) {
     const detailBody = document.createElement('tbody');
     detailTable.append(detailHead, detailBody);
     detailTableWrap.append(detailTable);
-    familyUserSection.append(familyUserHeader, familyEmpty, detailTableWrap);
+    familyUserSection.append(familyEmpty, detailTableWrap);
 
     const builtSection = div('guid-section');
     const builtHeader = div('guid-section-header');
@@ -145,14 +150,18 @@ export function renderGuid(root) {
     builtTable.append(builtHead, builtBody);
     builtTableWrap.append(builtTable);
     builtSection.append(builtHeader, builtTableWrap);
-    detailPane.append(filterBar, familyUserSection, builtSection);
+    const leftBody = div('guid-family-body guid-family-left-body');
+    const rightBody = div('guid-family-body guid-family-right-body');
+    rightHeader.append(filterBar, familyUserHeader);
+    leftBody.append(navPane);
+    rightBody.append(familyUserSection, builtSection);
 
     builtToggle.onclick = () => {
         builtSection.classList.toggle('is-open');
         builtToggle.textContent = builtSection.classList.contains('is-open') ? '접기' : '펼치기';
         paintFamily();
     };
-    detailWrap.append(navPane, detailPane);
+    detailWrap.append(leftHeader, rightHeader, leftBody, rightBody);
     tabPanelFamily.append(detailWrap);
 
     tabPanels.append(tabPanelProject, tabPanelFamily);
@@ -309,8 +318,8 @@ export function renderGuid(root) {
     function onExport() {
         if (state.busy) return;
         if (!hasRowsForExport()) { toast('저장할 결과가 없습니다.', 'warn'); return; }
-        let which = 'project';
-        if (state.activeTab === 'family') which = 'family';
+        const hasFamilyRows = state.includeFamily && (state.familyDetail.rows || []).length > 0;
+        const which = hasFamilyRows ? 'all' : 'project';
         chooseExcelMode((mode) => {
             const excelMode = mode || 'fast';
             lastExcelPct = 0;
@@ -334,7 +343,7 @@ export function renderGuid(root) {
             const on = !!state.includeFamily;
             famToggle.classList.toggle('is-active', on);
             famToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
-            famToggle.innerHTML = `<span>Family(RFA) Parameter 추가 검토</span><span class="guid-option-badge">${on ? 'ON' : 'OFF'}</span>`;
+            famToggle.innerHTML = `<span>Family 검토결과 추가 검토</span><span class="guid-option-badge">${on ? 'ON' : 'OFF'}</span>`;
         };
         famToggle.onclick = () => { state.includeFamily = !state.includeFamily; syncAnnotationToggle(); syncTabState(); sync(); };
         sync();
@@ -390,6 +399,8 @@ export function renderGuid(root) {
         const allChecked = state.rvtList.length > 0 && state.rvtList.every(p => state.rvtChecked.has(p));
         master.checked = allChecked;
         master.indeterminate = state.rvtList.length > 0 && !allChecked && state.rvtChecked.size > 0;
+        const masterCell = master.closest('th');
+        if (masterCell) masterCell.style.textAlign = 'center';
         master.onchange = () => {
             if (master.checked) state.rvtChecked = new Set(state.rvtList);
             else state.rvtChecked.clear();
@@ -409,6 +420,7 @@ export function renderGuid(root) {
         state.rvtList.forEach((p, i) => {
             const tr = document.createElement('tr');
             const tdCk = document.createElement('td');
+            tdCk.style.textAlign = 'center';
             const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = state.rvtChecked.has(p);
             ck.onchange = () => {
                 if (ck.checked) state.rvtChecked.add(p); else state.rvtChecked.delete(p);
@@ -461,7 +473,7 @@ export function renderGuid(root) {
     function paintFamily() {
         navList.innerHTML = '';
         if (!state.includeFamily) {
-            navList.innerHTML = '<li class="guid-nav-empty">Family(RFA) Parameter 추가 검토를 선택 후 실행하세요.</li>';
+            navList.innerHTML = '<li class="guid-nav-empty">Family 검토결과 추가 검토를 선택 후 실행하세요.</li>';
             detailHead.innerHTML = '';
             detailBody.innerHTML = '';
             builtHead.innerHTML = '';
@@ -656,11 +668,9 @@ export function renderGuid(root) {
     }
 
     function hasRowsForExport() {
-        if (state.activeTab === 'family') {
-            if (!state.includeFamily) return false;
-            return (state.familyDetail.rows || []).length > 0 || (state.familyNav.rows || []).length > 0;
-        }
-        return (state.project.rows || []).length > 0;
+        const hasProject = (state.project.rows || []).length > 0;
+        const hasFamily = state.includeFamily && ((state.familyDetail.rows || []).length > 0 || (state.familyNav.rows || []).length > 0);
+        return hasProject || hasFamily;
     }
 
     function syncTabState() {
