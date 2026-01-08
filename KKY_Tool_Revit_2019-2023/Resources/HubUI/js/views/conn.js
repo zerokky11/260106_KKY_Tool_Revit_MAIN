@@ -72,6 +72,8 @@ export function renderConn(root) {
 
   const run = cardBtn('검토 시작', onRun);
   const save = cardBtn('엑셀 내보내기', onExport);
+  run.classList.add('btn-primary');
+  save.classList.add('btn-outline');
   save.id = 'btnConnSave';
   save.disabled = true;
 

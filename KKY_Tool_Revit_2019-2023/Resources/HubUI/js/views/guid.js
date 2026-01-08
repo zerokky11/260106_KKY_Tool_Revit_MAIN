@@ -14,102 +14,148 @@ export function renderGuid(root) {
 
     const initialRvtList = loadRvtList();
     const state = {
-        mode: 1,
         rvtList: initialRvtList,
         rvtChecked: new Set(initialRvtList),
-        summary: { columns: [], rows: [] },
-        detail: { columns: [], rows: [] },
-        activeTab: 'summary',
-        activeDocKey: '',
+        project: { columns: [], rows: [] },
+        familyNav: { columns: [], rows: [] },
+        familyDetail: { columns: [], rows: [] },
+        activeProjectDoc: '',
+        activeFamilyDoc: '',
         activeFamily: '',
-        busy: false
+        activeTab: 'project',
+        busy: false,
+        runId: '',
+        includeFamily: false,
+        includeAnnotation: false,
+        familyFilter: 'all'
     };
     let lastExcelPct = 0;
 
     const page = div('feature-shell guid-page');
 
     // Header
-    const header = div('feature-header');
-    const heading = div('feature-heading');
-    heading.innerHTML = `
+    const header = div('feature-header guid-header');
+    const headerLeft = div('feature-heading');
+    headerLeft.innerHTML = `
       <span class="feature-kicker">GUID Audit</span>
       <h2 class="feature-title">공유 파라미터 GUID 검토</h2>
       <p class="feature-sub">프로젝트/패밀리 파라미터 GUID를 공유 파라미터 파일과 비교합니다.</p>`;
 
+    const headerRight = div('guid-header-right');
+    const optionRow = div('guid-options');
     const modeToggle = buildModeToggle();
-    const runBtn = cardBtn('검토 시작', onRun);
-    const exportBtn = cardBtn('엑셀 내보내기', onExport);
-    exportBtn.disabled = true;
-    const actions = div('feature-actions');
-    const rightActions = div('guid-header-actions');
-    rightActions.append(modeToggle, runBtn, exportBtn);
-    actions.append(rightActions);
-    header.append(heading, actions);
+    const annotationToggle = buildAnnotationToggle();
+    optionRow.append(modeToggle, annotationToggle);
+    headerRight.append(optionRow);
+    header.append(headerLeft, headerRight);
     page.append(header);
 
     const body = div('guid-body');
 
     // RVT section
-    const rvtSection = div('feature-results-panel guid-panel');
+    const rvtSection = div('feature-results-panel guid-panel segmentpms-extract');
     const rvtHeader = document.createElement('div');
-    rvtHeader.className = 'feature-results-head';
+    rvtHeader.className = 'feature-results-head guid-rvt-head';
     const rvtTitle = document.createElement('div');
     rvtTitle.className = 'guid-title';
     rvtTitle.innerHTML = '<h3>대상 RVT 목록</h3><p class="feature-note">비우면 현재 활성 문서를 사용합니다.</p>';
-    const rvtActions = div('feature-actions');
+    const rvtActions = div('segmentpms-actions-row');
     let btnRemove = null;
+    let btnClear = null;
     const btnAdd = cardBtn('RVT 파일 추가', () => post('guid:add-files', { pick: 'files' }));
     const btnAddFolder = cardBtn('폴더 선택', () => post('guid:add-files', { pick: 'folder' }));
     btnRemove = cardBtn('선택 제거', onRemoveSelected);
     btnRemove.disabled = true;
-    const btnClear = cardBtn('목록 지우기', () => { state.rvtList = []; state.rvtChecked.clear(); persistRvts(); renderRvtList(); syncRvtActionState(); });
-    rvtActions.append(btnAdd, btnAddFolder, btnRemove, btnClear);
+    btnClear = cardBtn('등록 목록 비우기', () => { state.rvtList = []; state.rvtChecked.clear(); persistRvts(); renderRvtList(); syncRvtActionState(); });
+    const runBtn = cardBtn('검토 시작', onRun);
+    const exportBtn = cardBtn('엑셀 내보내기', onExport);
+    runBtn.classList.add('btn-primary');
+    exportBtn.classList.add('btn-outline');
+    exportBtn.disabled = true;
+    rvtActions.append(btnAdd, btnAddFolder, btnRemove, btnClear, runBtn, exportBtn);
+
     rvtHeader.append(rvtTitle, rvtActions);
-    const rvtTableWrap = div('guid-table-wrap guid-rvt-wrap');
-    const rvtTable = document.createElement('table'); rvtTable.className = 'guid-rvt-table';
-    rvtTable.innerHTML = '<thead><tr><th><input type="checkbox"></th><th>#</th><th>파일명</th><th>경로</th></tr></thead><tbody></tbody>';
+    const rvtTableWrap = div('segmentpms-rvtlist guid-rvt-wrap');
+    const rvtTable = document.createElement('table'); rvtTable.className = 'segmentpms-table guid-rvt-table';
+    rvtTable.innerHTML = '<thead><tr><th><input type="checkbox"></th><th>파일 경로</th></tr></thead><tbody></tbody>';
     const rvtBody = rvtTable.querySelector('tbody');
     rvtTableWrap.append(rvtTable);
-    rvtSection.append(rvtHeader, rvtTableWrap);
+    const rvtSummary = div('segmentpms-summary'); rvtSummary.textContent = '파일 0개';
+    rvtSection.append(rvtHeader, rvtTableWrap, rvtSummary);
     body.append(rvtSection);
 
     // Result tabs
     const tabs = div('feature-results-panel guid-results feature-tabs');
     const tabHead = div('feature-results-head');
     const tabBtns = div('pill-tabs');
-    const btnTabSummary = document.createElement('button'); btnTabSummary.type = 'button'; btnTabSummary.className = 'pill-tab is-active'; btnTabSummary.innerHTML = `<span class="pill-label">요약</span><span class="pill-count">0</span>`;
-    const btnTabDetail = document.createElement('button'); btnTabDetail.type = 'button'; btnTabDetail.className = 'pill-tab'; btnTabDetail.innerHTML = `<span class="pill-label">패밀리/파라미터</span><span class="pill-count">0</span>`;
-    tabBtns.append(btnTabSummary, btnTabDetail);
+    const btnTabProject = document.createElement('button'); btnTabProject.type = 'button'; btnTabProject.className = 'pill-tab is-active'; btnTabProject.innerHTML = `<span class="pill-label">RVT 검토결과</span><span class="pill-count">0</span>`;
+    const btnTabFamily = document.createElement('button'); btnTabFamily.type = 'button'; btnTabFamily.className = 'pill-tab'; btnTabFamily.innerHTML = `<span class="pill-label">Family(RFA) Parameter</span><span class="pill-count">0</span>`;
+    tabBtns.append(btnTabProject, btnTabFamily);
     tabHead.append(tabBtns);
     tabs.append(tabHead);
 
     const tabPanels = div('guid-tab-panels');
-    const tabPanelSummary = div('guid-tab-panel');
-    const summaryTableWrap = div('guid-table-wrap');
-    const summaryTable = document.createElement('table'); summaryTable.className = 'guid-table';
-    const summaryHead = document.createElement('thead');
-    const summaryBody = document.createElement('tbody');
-    summaryTable.append(summaryHead, summaryBody);
-        summaryTableWrap.append(summaryTable);
-        tabPanelSummary.append(summaryTableWrap);
+    const tabPanelProject = div('guid-tab-panel');
+    const projWrap = div('guid-detail-wrap');
+    const projNavPane = div('guid-detail-nav feature-results-panel guid-scroll-box');
+    const projNavList = document.createElement('ul'); projNavList.className = 'guid-nav-list';
+    projNavPane.append(projNavList);
+    const projDetailPane = div('guid-detail-pane');
+    const projTableWrap = div('guid-table-wrap guid-scroll-box');
+    const projTable = document.createElement('table'); projTable.className = 'guid-table';
+    const projHead = document.createElement('thead');
+    const projBody = document.createElement('tbody');
+    projTable.append(projHead, projBody);
+    projTableWrap.append(projTable);
+    projDetailPane.append(projTableWrap);
+    projWrap.append(projNavPane, projDetailPane);
+    tabPanelProject.append(projWrap);
 
-    const tabPanelDetail = div('guid-tab-panel is-hidden');
+    const tabPanelFamily = div('guid-tab-panel is-hidden');
     const detailWrap = div('guid-detail-wrap');
-    const navPane = div('guid-detail-nav feature-results-panel');
+    const navPane = div('guid-detail-nav feature-results-panel guid-scroll-box');
     const navList = document.createElement('ul'); navList.className = 'guid-nav-list';
     navPane.append(navList);
     const detailPane = div('guid-detail-pane');
-    const detailTableWrap = div('guid-table-wrap');
+    const filterBar = buildFamilyFilter();
+    const familyUserSection = div('guid-section');
+    const familyUserHeader = div('guid-section-header');
+    const familyUserTitle = document.createElement('div'); familyUserTitle.className = 'guid-section-title'; familyUserTitle.textContent = '사용자 파라미터';
+    const familyUserCount = document.createElement('span'); familyUserCount.className = 'guid-section-count'; familyUserCount.textContent = '0';
+    familyUserHeader.append(familyUserTitle, familyUserCount);
+    const familyEmpty = div('guid-empty'); familyEmpty.textContent = '파라미터 없음';
+    const detailTableWrap = div('guid-table-wrap guid-scroll-box');
     const detailTable = document.createElement('table'); detailTable.className = 'guid-table';
     const detailHead = document.createElement('thead');
     const detailBody = document.createElement('tbody');
     detailTable.append(detailHead, detailBody);
     detailTableWrap.append(detailTable);
-    detailPane.append(detailTableWrap);
-    detailWrap.append(navPane, detailPane);
-    tabPanelDetail.append(detailWrap);
+    familyUserSection.append(familyUserHeader, familyEmpty, detailTableWrap);
 
-    tabPanels.append(tabPanelSummary, tabPanelDetail);
+    const builtSection = div('guid-section');
+    const builtHeader = div('guid-section-header');
+    const builtTitle = document.createElement('div'); builtTitle.className = 'guid-section-title'; builtTitle.textContent = 'Built-in 파라미터';
+    const builtCount = document.createElement('span'); builtCount.className = 'guid-section-count'; builtCount.textContent = '0';
+    const builtToggle = document.createElement('button'); builtToggle.type = 'button'; builtToggle.className = 'pill-tab'; builtToggle.textContent = '펼치기';
+    builtHeader.append(builtTitle, builtCount, builtToggle);
+    const builtTableWrap = div('guid-table-wrap guid-scroll-box');
+    const builtTable = document.createElement('table'); builtTable.className = 'guid-table';
+    const builtHead = document.createElement('thead');
+    const builtBody = document.createElement('tbody');
+    builtTable.append(builtHead, builtBody);
+    builtTableWrap.append(builtTable);
+    builtSection.append(builtHeader, builtTableWrap);
+    detailPane.append(filterBar, familyUserSection, builtSection);
+
+    builtToggle.onclick = () => {
+        builtSection.classList.toggle('is-open');
+        builtToggle.textContent = builtSection.classList.contains('is-open') ? '접기' : '펼치기';
+        paintFamily();
+    };
+    detailWrap.append(navPane, detailPane);
+    tabPanelFamily.append(detailWrap);
+
+    tabPanels.append(tabPanelProject, tabPanelFamily);
     tabs.append(tabPanels);
     body.append(tabs);
 
@@ -119,6 +165,8 @@ export function renderGuid(root) {
     renderRvtList();
     syncTabState();
     syncRvtActionState();
+    syncModeToggle();
+    syncAnnotationToggle();
 
     // Host events
     onHost('guid:files', ({ paths }) => {
@@ -153,24 +201,45 @@ export function renderGuid(root) {
         ProgressDialog.hide();
         setBusy(false);
         lastExcelPct = 0;
-        const sum = payload?.summary || {};
-        const det = payload?.detail || {};
-        state.summary = {
-            columns: Array.isArray(sum.columns) ? sum.columns : [],
-            rows: Array.isArray(sum.rows) ? sum.rows : []
+        const proj = payload?.project || {};
+        const famNav = payload?.family || payload?.familyIndex || {};
+        state.runId = payload?.runId || '';
+        state.includeFamily = !!payload?.includeFamily;
+        state.includeAnnotation = !!payload?.includeAnnotation;
+        state.project = {
+            columns: Array.isArray(proj.columns) ? proj.columns : [],
+            rows: Array.isArray(proj.rows) ? proj.rows : []
         };
-        state.detail = {
-            columns: Array.isArray(det.columns) ? det.columns : [],
-            rows: Array.isArray(det.rows) ? det.rows : []
+        state.familyNav = {
+            columns: Array.isArray(famNav.columns) ? famNav.columns : [],
+            rows: Array.isArray(famNav.rows) ? famNav.rows : []
         };
-        state.activeDocKey = '';
+        state.familyDetail = { columns: [], rows: [] };
+        state.activeProjectDoc = '';
+        state.activeFamilyDoc = '';
         state.activeFamily = '';
+        state.familyFilter = 'all';
+        syncModeToggle();
+        syncAnnotationToggle();
         exportBtn.disabled = !hasRowsForExport();
         updateTabCounts();
-        paintSummary();
-        paintDetail();
+        paintProject();
+        paintFamily();
         syncTabState();
         toast('검토 완료', 'ok');
+    });
+
+    onHost('guid:family-detail', (payload) => {
+        if (payload?.runId && state.runId && payload.runId !== state.runId) return;
+        state.familyDetail = {
+            columns: Array.isArray(payload?.columns) ? payload.columns : [],
+            rows: Array.isArray(payload?.rows) ? payload.rows : []
+        };
+        state.activeFamilyDoc = payload?.rvtPath || state.activeFamilyDoc || '';
+        state.activeFamily = payload?.familyName || state.activeFamily || '';
+        updateTabCounts();
+        paintFamily();
+        syncTabState();
     });
 
     onHost('guid:warn', ({ message }) => {
@@ -199,10 +268,10 @@ export function renderGuid(root) {
     onHost('host:error', handleError);
 
     // UI handlers
-    btnTabSummary.onclick = () => { state.activeTab = 'summary'; syncTabState(); };
-    btnTabDetail.onclick = () => {
-        if (state.mode !== 2) return;
-        state.activeTab = 'detail';
+    btnTabProject.onclick = () => { state.activeTab = 'project'; syncTabState(); };
+    btnTabFamily.onclick = () => {
+        if (!state.includeFamily) return;
+        state.activeTab = 'family';
         syncTabState();
     };
 
@@ -215,14 +284,24 @@ export function renderGuid(root) {
             return;
         }
 
+        const includeFamily = !!state.includeFamily;
         const payload = {
-            mode: state.mode,
-            rvtPaths: state.rvtList.length === 0 ? [] : targets
+            mode: includeFamily ? 2 : 1,
+            rvtPaths: state.rvtList.length === 0 ? [] : targets,
+            includeFamily,
+            includeAnnotation: includeFamily ? !!state.includeAnnotation : false
         };
         persistRvts();
 
+        state.familyNav = { columns: [], rows: [] };
+        state.familyDetail = { columns: [], rows: [] };
+        state.project = { columns: [], rows: [] };
+        state.activeProjectDoc = '';
+        state.activeFamilyDoc = '';
+        state.activeFamily = '';
         setBusy(true);
-        if (state.mode !== 2) state.activeTab = 'summary';
+        state.runId = '';
+        state.activeTab = 'project';
         ProgressDialog.show('GUID Audit', '준비 중…');
         post('guid:run', payload);
     }
@@ -230,7 +309,8 @@ export function renderGuid(root) {
     function onExport() {
         if (state.busy) return;
         if (!hasRowsForExport()) { toast('저장할 결과가 없습니다.', 'warn'); return; }
-        const which = state.activeTab === 'detail' ? 'detail' : 'summary';
+        let which = 'project';
+        if (state.activeTab === 'family') which = 'family';
         chooseExcelMode((mode) => {
             const excelMode = mode || 'fast';
             lastExcelPct = 0;
@@ -242,16 +322,65 @@ export function renderGuid(root) {
 
     function buildModeToggle() {
         const wrap = div('guid-mode');
-        const btnM1 = document.createElement('button'); btnM1.type = 'button'; btnM1.className = 'mode-btn is-active'; btnM1.textContent = 'Mode 1: 프로젝트 파라미터';
-        const btnM2 = document.createElement('button'); btnM2.type = 'button'; btnM2.className = 'mode-btn'; btnM2.textContent = 'Mode 2: 패밀리 공유 파라미터';
-        btnM1.onclick = () => { if (state.mode === 1) return; state.mode = 1; state.activeTab = 'summary'; syncModeButtons(); syncTabState(); };
-        btnM2.onclick = () => { if (state.mode === 2) return; state.mode = 2; syncModeButtons(); syncTabState(); };
-        wrap.append(btnM1, btnM2);
-        function syncModeButtons() {
-            btnM1.classList.toggle('is-active', state.mode === 1);
-            btnM2.classList.toggle('is-active', state.mode === 2);
-        }
+        const projBadge = document.createElement('span');
+        projBadge.className = 'pill-tab guid-badge guid-mode-pill';
+        projBadge.innerHTML = `<span class="guid-badge-check">✓</span><span>Project(RVT) Parameter - 기본</span>`;
+
+        const famToggle = document.createElement('button');
+        famToggle.type = 'button';
+        famToggle.className = 'pill-tab guid-option-toggle';
+        famToggle.setAttribute('aria-pressed', 'false');
+        const sync = () => {
+            const on = !!state.includeFamily;
+            famToggle.classList.toggle('is-active', on);
+            famToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+            famToggle.innerHTML = `<span>Family(RFA) Parameter 추가 검토</span><span class="guid-option-badge">${on ? 'ON' : 'OFF'}</span>`;
+        };
+        famToggle.onclick = () => { state.includeFamily = !state.includeFamily; syncAnnotationToggle(); syncTabState(); sync(); };
+        sync();
+
+        wrap.append(projBadge, famToggle);
+        wrap.sync = sync;
         return wrap;
+    }
+
+    function buildAnnotationToggle() {
+        const wrap = div('guid-annotation');
+        const label = document.createElement('label');
+        label.className = 'guid-checkbox-row';
+        const ck = document.createElement('input');
+        ck.type = 'checkbox';
+        ck.checked = !!state.includeAnnotation;
+        ck.onchange = () => { state.includeAnnotation = !!ck.checked; };
+        const span = document.createElement('span');
+        span.textContent = 'Annotation 포함';
+        label.append(ck, span);
+        wrap.append(label);
+        wrap.sync = function () {
+            ck.checked = !!state.includeAnnotation;
+            ck.disabled = !state.includeFamily;
+            label.classList.toggle('is-disabled', !state.includeFamily);
+            if (!state.includeFamily) ck.checked = false;
+        };
+        return wrap;
+    }
+
+    function buildFamilyFilter() {
+        const bar = div('guid-filter-bar');
+        const btnAll = document.createElement('button'); btnAll.type = 'button'; btnAll.className = 'pill-tab is-active'; btnAll.textContent = '전체';
+        const btnShared = document.createElement('button'); btnShared.type = 'button'; btnShared.className = 'pill-tab'; btnShared.textContent = 'Shared';
+        const btnFamily = document.createElement('button'); btnFamily.type = 'button'; btnFamily.className = 'pill-tab'; btnFamily.textContent = 'Family';
+        const sync = () => {
+            btnAll.classList.toggle('is-active', state.familyFilter === 'all');
+            btnShared.classList.toggle('is-active', state.familyFilter === 'shared');
+            btnFamily.classList.toggle('is-active', state.familyFilter === 'family');
+        };
+        btnAll.onclick = () => { state.familyFilter = 'all'; sync(); paintFamily(); };
+        btnShared.onclick = () => { state.familyFilter = 'shared'; sync(); paintFamily(); };
+        btnFamily.onclick = () => { state.familyFilter = 'family'; sync(); paintFamily(); };
+        bar.append(btnAll, btnShared, btnFamily);
+        bar.sync = sync;
+        return bar;
     }
 
     function renderRvtList() {
@@ -271,8 +400,11 @@ export function renderGuid(root) {
         rvtBody.innerHTML = '';
         if (!state.rvtList.length) {
             const tr = document.createElement('tr');
-            const td = document.createElement('td'); td.colSpan = 4; td.textContent = '등록된 RVT가 없습니다.';
-            tr.append(td); rvtBody.append(tr); return;
+            const td = document.createElement('td'); td.colSpan = 2; td.textContent = '등록된 RVT가 없습니다.';
+            tr.append(td); rvtBody.append(tr);
+            rvtSummary.textContent = '파일 0개';
+            syncRvtActionState();
+            return;
         }
         state.rvtList.forEach((p, i) => {
             const tr = document.createElement('tr');
@@ -284,49 +416,93 @@ export function renderGuid(root) {
                 renderRvtList();
             };
             tdCk.append(ck);
-            const name = p?.split(/[\\/]/).pop() || '(Doc)';
-            const tdIdx = document.createElement('td'); tdIdx.textContent = i + 1;
-            const tdName = document.createElement('td'); tdName.textContent = name;
-            const tdPath = document.createElement('td'); tdPath.className = 'path-cell'; tdPath.textContent = p;
-            tr.append(tdCk, tdIdx, tdName, tdPath);
+            const tdPath = document.createElement('td'); tdPath.className = 'segmentpms-path-cell'; tdPath.textContent = p; tdPath.title = p;
+            tr.append(tdCk, tdPath);
             rvtBody.append(tr);
         });
+        rvtSummary.textContent = `파일 ${state.rvtList.length}개`;
         syncRvtActionState();
     }
 
-    function paintSummary() {
-        buildHead(summaryHead, state.summary.columns, new Set());
-        paintVirtualRows(summaryBody, state.summary.columns, state.summary.rows, new Set());
-    }
-
-    function paintDetail() {
-        buildHead(detailHead, state.detail.columns, HIDDEN_DETAIL_COLS);
-        paintVirtualRows(detailBody, state.detail.columns, filteredDetailRows(), HIDDEN_DETAIL_COLS);
-        buildNav();
-    }
-
-    function buildNav() {
-        navList.innerHTML = '';
-        if (!state.detail.rows.length) {
+    function paintProject() {
+        projNavList.innerHTML = '';
+        if (!state.project.rows.length) {
             const empty = document.createElement('li');
             empty.className = 'guid-nav-empty';
-            empty.textContent = '상세 결과가 없습니다.';
-            navList.append(empty);
+            empty.textContent = '결과가 없습니다.';
+            projNavList.append(empty);
+            projHead.innerHTML = '';
+            projBody.innerHTML = '';
             return;
         }
-        const idxPath = colIndex('RvtPath');
-        const idxName = colIndex('RvtName');
-        const idxFam = colIndex('FamilyName');
+        const idxPath = projectCol('RvtPath');
+        const idxName = projectCol('RvtName');
+        const docMap = new Map();
+        state.project.rows.forEach(row => {
+            const path = idxPath >= 0 ? safe(row[idxPath]) : '';
+            const name = idxName >= 0 ? safe(row[idxName]) : (path || '(Doc)');
+            const key = path || name;
+            if (!docMap.has(key)) docMap.set(key, name);
+        });
+        const docs = Array.from(docMap.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+        if (!state.activeProjectDoc && docs.length) state.activeProjectDoc = docs[0][0];
+        docs.forEach(([key, name]) => {
+            const li = document.createElement('li');
+            const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'nav-fam-item'; btn.textContent = name;
+            btn.onclick = () => { state.activeProjectDoc = key; paintProject(); };
+            if (state.activeProjectDoc === key) btn.classList.add('is-active');
+            li.append(btn);
+            projNavList.append(li);
+        });
+        buildHead(projHead, state.project.columns, new Set(['RvtPath']));
+        paintVirtualRows(projBody, state.project.columns, filteredProjectRows(), new Set(['RvtPath']));
+    }
+
+    function paintFamily() {
+        navList.innerHTML = '';
+        if (!state.includeFamily) {
+            navList.innerHTML = '<li class="guid-nav-empty">Family(RFA) Parameter 추가 검토를 선택 후 실행하세요.</li>';
+            detailHead.innerHTML = '';
+            detailBody.innerHTML = '';
+            builtHead.innerHTML = '';
+            builtBody.innerHTML = '';
+            familyEmpty.style.display = 'none';
+            detailTableWrap.style.display = 'none';
+            builtTableWrap.style.display = 'none';
+            if (filterBar && typeof filterBar.sync === 'function') filterBar.sync();
+            return;
+        }
+        if (!state.familyNav.rows.length) {
+            const empty = document.createElement('li');
+            empty.className = 'guid-nav-empty';
+            empty.textContent = '패밀리 결과가 없습니다.';
+            navList.append(empty);
+            detailHead.innerHTML = '';
+            detailBody.innerHTML = '';
+            builtHead.innerHTML = '';
+            builtBody.innerHTML = '';
+            familyEmpty.style.display = 'none';
+            detailTableWrap.style.display = 'none';
+            builtTableWrap.style.display = 'none';
+            if (filterBar && typeof filterBar.sync === 'function') filterBar.sync();
+            return;
+        }
+        if (filterBar && typeof filterBar.sync === 'function') filterBar.sync();
+        const idxPath = indexCol(state.familyNav, 'RvtPath');
+        const idxName = indexCol(state.familyNav, 'RvtName');
+        const idxFam = indexCol(state.familyNav, 'FamilyName');
         const map = new Map();
-        state.detail.rows.forEach(row => {
-            const path = (row[idxPath] || '').toString();
-            const rname = (row[idxName] || path || '(Doc)').toString();
-            const fam = (row[idxFam] || '').toString();
+        state.familyNav.rows.forEach(row => {
+            const path = idxPath >= 0 ? safe(row[idxPath]) : '';
+            const rname = idxName >= 0 ? safe(row[idxName]) : (path || '(Doc)');
+            const fam = idxFam >= 0 ? safe(row[idxFam]) : '';
             const key = path || rname;
             if (!map.has(key)) map.set(key, { name: rname, families: new Set() });
             if (fam) map.get(key).families.add(fam);
         });
-        Array.from(map.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name)).forEach(([key, info]) => {
+        const entries = Array.from(map.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name));
+        if (!state.activeFamilyDoc && entries.length) state.activeFamilyDoc = entries[0][0];
+        entries.forEach(([key, info]) => {
             const docItem = document.createElement('li');
             docItem.className = 'guid-nav-doc';
             const docTitle = document.createElement('div');
@@ -341,8 +517,8 @@ export function renderGuid(root) {
                 const li = document.createElement('li');
                 const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'nav-fam-item'; btn.textContent = f;
                 btn.title = f;
-                btn.onclick = () => { state.activeDocKey = key; state.activeFamily = f; paintDetail(); };
-                if (state.activeDocKey === key && state.activeFamily === f) btn.classList.add('is-active');
+                btn.onclick = () => { onRequestFamilyDetail(key, f); };
+                if (state.activeFamilyDoc === key && state.activeFamily === f) btn.classList.add('is-active');
                 li.append(btn);
                 famList.append(li);
             });
@@ -350,26 +526,97 @@ export function renderGuid(root) {
             docItem.append(famList);
             navList.append(docItem);
         });
+        const { userRows, builtRows } = splitFamilyRows();
+        familyUserCount.textContent = String(userRows.length || 0);
+        builtCount.textContent = String(builtRows.length || 0);
+        familyEmpty.style.display = userRows.length ? 'none' : 'block';
+        detailTableWrap.style.display = userRows.length ? 'block' : 'none';
+        buildHead(detailHead, state.familyDetail.columns, HIDDEN_DETAIL_COLS);
+        paintVirtualRows(detailBody, state.familyDetail.columns, userRows, HIDDEN_DETAIL_COLS);
+
+        const builtOpen = builtSection.classList.contains('is-open');
+        builtTableWrap.style.display = builtOpen ? 'block' : 'none';
+        if (builtOpen) {
+            buildHead(builtHead, state.familyDetail.columns, HIDDEN_DETAIL_COLS);
+            paintVirtualRows(builtBody, state.familyDetail.columns, builtRows, HIDDEN_DETAIL_COLS);
+        } else {
+            builtHead.innerHTML = '';
+            builtBody.innerHTML = '';
+        }
     }
 
-    function filteredDetailRows() {
-        if (!state.detail.rows.length) return [];
-        const idxPath = colIndex('RvtPath');
-        const idxFam = colIndex('FamilyName');
-        const key = state.activeDocKey;
-        const fam = state.activeFamily;
-        if (!key && !fam) return state.detail.rows;
-        return state.detail.rows.filter(row => {
-            const path = (row[idxPath] || '').toString();
-            const famName = (row[idxFam] || '').toString();
-            const docMatch = !key || ((path || '') === key);
-            const famMatch = !fam || (famName === fam);
-            return docMatch && famMatch;
+    function onRequestFamilyDetail(rvtPath, familyName) {
+        if (!state.runId) {
+            toast('먼저 검토를 실행하세요.', 'warn');
+            return;
+        }
+        state.activeFamilyDoc = rvtPath || familyName || '';
+        state.activeFamily = familyName || '';
+        state.familyDetail = { columns: [], rows: [] };
+        paintFamily();
+        post('guid:request-family-detail', { runId: state.runId, rvtPath, familyName });
+    }
+
+    function filteredProjectRows() {
+        if (!state.project.rows.length) return [];
+        const idxPath = projectCol('RvtPath');
+        const idxName = projectCol('RvtName');
+        if (!state.activeProjectDoc) return state.project.rows;
+        return state.project.rows.filter(row => {
+            const path = idxPath >= 0 ? safe(row[idxPath]) : '';
+            const name = idxName >= 0 ? safe(row[idxName]) : '';
+            return (path || name) === state.activeProjectDoc;
         });
     }
 
+    function filteredFamilyRows() {
+        if (!state.familyDetail.rows.length) return [];
+        const idxPath = colIndex('RvtPath');
+        const idxFam = colIndex('FamilyName');
+        const idxKind = colIndex('ParamKind');
+        const idxShared = colIndex('IsShared');
+        return state.familyDetail.rows.filter(row => {
+            const path = idxPath >= 0 ? safe(row[idxPath]) : '';
+            const famName = idxFam >= 0 ? safe(row[idxFam]) : '';
+            const kind = idxKind >= 0 ? safe(row[idxKind]) : '';
+            const shared = idxShared >= 0 ? safe(row[idxShared]) : '';
+            const docMatch = idxPath < 0 || !state.activeFamilyDoc || ((path || '') === state.activeFamilyDoc);
+            const famMatch = !state.activeFamily || (famName === state.activeFamily);
+            const filterMatch = state.familyFilter === 'all' ||
+                (state.familyFilter === 'shared' && (kind === 'Shared' || shared === 'Y')) ||
+                (state.familyFilter === 'family' && (kind === 'Family' || shared === 'N'));
+            return docMatch && famMatch && filterMatch;
+        });
+    }
+
+    function splitFamilyRows() {
+        const rows = filteredFamilyRows();
+        const idxKind = colIndex('ParamKind');
+        const userRows = [];
+        const builtRows = [];
+        rows.forEach(row => {
+            const kind = idxKind >= 0 ? safe(row[idxKind]) : '';
+            if (kind === 'BuiltIn') {
+                builtRows.push(row);
+            } else if (kind === 'Shared' || kind === 'Family') {
+                userRows.push(row);
+            } else {
+                userRows.push(row);
+            }
+        });
+        return { userRows, builtRows };
+    }
+
     function colIndex(name) {
-        return state.detail.columns.findIndex(c => c === name);
+        return state.familyDetail.columns.findIndex(c => c === name);
+    }
+
+    function projectCol(name) {
+        return state.project.columns.findIndex(c => c === name);
+    }
+
+    function indexCol(table, name) {
+        return (table.columns || []).findIndex(c => c === name);
     }
 
     function buildHead(thead, columns, hidden) {
@@ -395,7 +642,9 @@ export function renderGuid(root) {
                 columns.forEach((c, ci) => {
                     if (hidden.has(c)) return;
                     const td = document.createElement('td');
-                    td.textContent = safe(row[ci]);
+                    const text = safe(row[ci]);
+                    td.textContent = text;
+                    td.title = text;
                     tr.append(td);
                 });
                 frag.append(tr);
@@ -407,23 +656,38 @@ export function renderGuid(root) {
     }
 
     function hasRowsForExport() {
-        if (state.activeTab === 'detail' && state.mode === 2) {
-            return (state.detail.rows || []).length > 0;
+        if (state.activeTab === 'family') {
+            if (!state.includeFamily) return false;
+            return (state.familyDetail.rows || []).length > 0 || (state.familyNav.rows || []).length > 0;
         }
-        return (state.summary.rows || []).length > 0;
+        return (state.project.rows || []).length > 0;
     }
 
     function syncTabState() {
-        btnTabSummary.classList.toggle('is-active', state.activeTab === 'summary');
-        btnTabDetail.classList.toggle('is-active', state.activeTab === 'detail');
-        btnTabDetail.disabled = (state.mode !== 2);
-        tabPanelSummary.classList.toggle('is-hidden', state.activeTab !== 'summary');
-        tabPanelDetail.classList.toggle('is-hidden', state.activeTab !== 'detail' || state.mode !== 2);
-        if (state.activeTab === 'detail' && state.mode !== 2) {
-            state.activeTab = 'summary';
+        btnTabProject.classList.toggle('is-active', state.activeTab === 'project');
+        btnTabFamily.classList.toggle('is-active', state.activeTab === 'family');
+        btnTabFamily.disabled = !state.includeFamily;
+        tabPanelProject.classList.toggle('is-hidden', state.activeTab !== 'project');
+        tabPanelFamily.classList.toggle('is-hidden', state.activeTab !== 'family');
+        if (state.activeTab === 'family' && !state.includeFamily) {
+            state.activeTab = 'project';
+            tabPanelProject.classList.remove('is-hidden');
+            tabPanelFamily.classList.add('is-hidden');
         }
         exportBtn.disabled = !hasRowsForExport();
         updateTabCounts();
+    }
+
+    function syncAnnotationToggle() {
+        if (annotationToggle && typeof annotationToggle.sync === 'function') {
+            annotationToggle.sync();
+        }
+    }
+
+    function syncModeToggle() {
+        if (modeToggle && typeof modeToggle.sync === 'function') {
+            modeToggle.sync();
+        }
     }
 
     function setBusy(on) {
@@ -519,18 +783,20 @@ export function renderGuid(root) {
     function onRemoveSelected() {
         if (!state.rvtChecked.size) { toast('제거할 RVT를 선택하세요.', 'warn'); return; }
         state.rvtList = state.rvtList.filter(p => !state.rvtChecked.has(p));
-        state.rvtChecked = new Set(state.rvtList);
+        state.rvtChecked.clear();
         persistRvts();
         renderRvtList();
     }
 
     function syncRvtActionState() {
         if (btnRemove) btnRemove.disabled = state.rvtChecked.size === 0;
+        if (btnClear) btnClear.disabled = state.rvtList.length === 0;
     }
 
     function updateTabCounts() {
-        setTabCount(btnTabSummary, state.summary.rows.length || 0);
-        setTabCount(btnTabDetail, state.detail.rows.length || 0);
+        setTabCount(btnTabProject, state.project.rows.length || 0);
+        const detCount = state.includeFamily ? (state.familyNav.rows.length || 0) : 0;
+        setTabCount(btnTabFamily, detCount);
     }
 }
 

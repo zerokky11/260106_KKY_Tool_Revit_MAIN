@@ -7,6 +7,7 @@ Imports System.Data
 Imports System.IO
 Imports System.Linq
 Imports System.Reflection
+Imports System.Text.RegularExpressions
 Imports Autodesk.Revit.DB
 Imports Autodesk.Revit.UI
 Imports KKY_Tool_Revit.Infrastructure
@@ -26,8 +27,11 @@ Namespace Services
 
         Public Class RunResult
             Public Property Mode As Integer
-            Public Property Summary As DataTable
-            Public Property Detail As DataTable
+            Public Property Project As DataTable
+            Public Property FamilyDetail As DataTable
+            Public Property FamilyIndex As DataTable
+            Public Property RunId As String
+            Public Property IncludeFamily As Boolean
         End Class
 
         Private Class TargetFile
@@ -41,8 +45,10 @@ Namespace Services
         Public Shared Function Run(app As UIApplication,
                                    mode As Integer,
                                    rvtPaths As IEnumerable(Of String),
-                                   progress As Action(Of Integer, String),
-                                   Optional warn As Action(Of String) = Nothing) As RunResult
+                                   progress As Action(Of Double, String),
+                                   Optional warn As Action(Of String) = Nothing,
+                                   Optional includeFamily As Boolean = False,
+                                   Optional includeAnnotation As Boolean = False) As RunResult
 
             If app Is Nothing Then Throw New ArgumentNullException(NameOf(app))
 
@@ -56,9 +62,11 @@ Namespace Services
                 Throw New InvalidOperationException("검토할 RVT 파일이 없습니다.")
             End If
 
+            Dim runId As String = Guid.NewGuid().ToString("N")
             Dim total As Integer = targets.Count
-            Dim summary As DataTable = Nothing
-            Dim detail As DataTable = Nothing
+            Dim projectTable As DataTable = Nothing
+            Dim familyDetail As DataTable = Nothing
+            Dim famIndex As DataTable = Nothing
 
             For i As Integer = 0 To total - 1
                 Dim target = targets(i)
@@ -71,15 +79,20 @@ Namespace Services
                     doc = ResolveOrOpenDocument(app, app.ActiveUIDocument?.Document, target.Path, openedByMe, openError)
 
                     If doc Is Nothing Then
-                        Dim fail = Auditors.MakeFailureSummaryTable(mode)
+                        Dim failProj = Auditors.MakeFailureSummaryTable(1)
                         Dim note = BuildOpenFailNotes(openError, target.Path)
                         Dim shortReason = ShortenReason(note)
                         If warn IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(note) Then
                             warn(note)
                         End If
                         ReportProgress(progress, total, i + 1, 0.08R, $"문서 열기 실패: {target.Name} - {shortReason}")
-                        Auditors.AddOpenFailRow(fail, target.Name, target.Path, If(mode = 1, "Project", "Family"), "OPEN_FAIL", note)
-                        summary = MergeTable(summary, fail)
+                        Auditors.AddOpenFailRow(failProj, target.Name, target.Path, "Project", "OPEN_FAIL", note)
+                        projectTable = MergeTable(projectTable, failProj)
+                        If includeFamily Then
+                            Dim failFam = Auditors.MakeFailureSummaryTable(2)
+                            Auditors.AddOpenFailRow(failFam, target.Name, target.Path, "Family", "OPEN_FAIL", note)
+                            familyDetail = MergeTable(familyDetail, failFam)
+                        End If
                         Continue For
                     End If
 
@@ -87,37 +100,43 @@ Namespace Services
                 Dim captureIndex As Integer = i
                 Dim captureName As String = rvtName
 
-                If mode = 2 Then
+                Dim proj = Auditors.RunProjectParameterAudit(doc, defMap, rvtName, target.Path,
+                                                             Function(cur, tot) As Object
+                                                                 Dim frac As Double = 0.1R + 0.8R * SafeRatio(cur, tot)
+                                                                 ReportProgress(progress, total, captureIndex + 1, frac, $"[{captureName}] 프로젝트 파라미터 ({cur}/{tot})")
+                                                                 Return Nothing
+                                                             End Function)
+                projectTable = MergeTable(projectTable, proj)
+
+                If includeFamily Then
                     Dim famPack = Auditors.RunFamilyAudit(doc, defMap, rvtName, target.Path,
                                                           Function(cur, tot, famName) As Object
                                                               Dim frac As Double = 0.1R + 0.8R * SafeRatio(cur, tot)
                                                               ReportProgress(progress, total, captureIndex + 1, frac, $"[{captureName}] 패밀리 처리 중 ({cur}/{tot}) {famName}")
                                                               Return Nothing
-                                                          End Function)
-                    summary = MergeTable(summary, famPack.Summary)
-                    detail = MergeTable(detail, famPack.Detail)
-                Else
-                    Dim proj = Auditors.RunProjectParameterAudit(doc, defMap, rvtName, target.Path,
-                                                                 Function(cur, tot) As Object
-                                                                     Dim frac As Double = 0.1R + 0.8R * SafeRatio(cur, tot)
-                                                                     ReportProgress(progress, total, captureIndex + 1, frac, $"[{captureName}] 프로젝트 파라미터 ({cur}/{tot})")
-                                                                     Return Nothing
-                                                                 End Function)
-                    summary = MergeTable(summary, proj)
+                                                          End Function,
+                                                          includeAnnotation)
+                    familyDetail = MergeTable(familyDetail, famPack.Detail)
+                    famIndex = MergeTable(famIndex, famPack.Index)
                 End If
 
                 ReportProgress(progress, total, captureIndex + 1, 1.0R, $"완료: {captureIndex + 1}/{total} {captureName}")
 
-                Catch ex As Exception
-                    Dim fail = Auditors.MakeFailureSummaryTable(mode)
+            Catch ex As Exception
+                    Dim fail = Auditors.MakeFailureSummaryTable(1)
                     Dim note = BuildExceptionNotes(ex, target.Path)
                     ReportProgress(progress, total, i + 1, 0.08R, $"문서 처리 실패: {target.Name} - {ShortenReason(note)}")
-                    Auditors.AddOpenFailRow(fail, target.Name, target.Path, If(mode = 1, "Project", "Family"), "ERROR", note)
-                    summary = MergeTable(summary, fail)
+                    Auditors.AddOpenFailRow(fail, target.Name, target.Path, "Project", "ERROR", note)
+                    projectTable = MergeTable(projectTable, fail)
+                    If includeFamily Then
+                        Dim failFam = Auditors.MakeFailureSummaryTable(2)
+                        Auditors.AddOpenFailRow(failFam, target.Name, target.Path, "Family", "ERROR", note)
+                        familyDetail = MergeTable(familyDetail, failFam)
+                    End If
 
-                Finally
-                    If openedByMe AndAlso doc IsNot Nothing Then
-                        Try
+            Finally
+                If openedByMe AndAlso doc IsNot Nothing Then
+                    Try
                             doc.Close(False)
                         Catch
                         End Try
@@ -127,8 +146,11 @@ Namespace Services
 
             Dim res As New RunResult() With {
                 .Mode = mode,
-                .Summary = If(summary, Auditors.MakeFailureSummaryTable(mode)),
-                .Detail = If(mode = 2, detail, Nothing)
+                .Project = If(projectTable, Auditors.MakeFailureSummaryTable(1)),
+                .FamilyDetail = If(includeFamily, familyDetail, Nothing),
+                .FamilyIndex = If(includeFamily, famIndex, Nothing),
+                .RunId = runId,
+                .IncludeFamily = includeFamily
             }
             Return res
         End Function
@@ -218,7 +240,19 @@ Namespace Services
             Return Math.Max(0, Math.Min(1.0R, CDbl(cur) / CDbl(tot)))
         End Function
 
-        Private Shared Sub ReportProgress(cb As Action(Of Integer, String),
+        Private Shared Function NormalizeName(s As String) As String
+            If s Is Nothing Then Return String.Empty
+            Dim value As String = s.Replace(ChrW(&HA0), " ")
+            value = value.Trim()
+            If value.Length = 0 Then Return String.Empty
+            Try
+                value = Regex.Replace(value, "\s+", " ")
+            Catch
+            End Try
+            Return value
+        End Function
+
+        Private Shared Sub ReportProgress(cb As Action(Of Double, String),
                                           totalFiles As Integer,
                                           fileIndex As Integer,
                                           docProgress As Double,
@@ -227,7 +261,7 @@ Namespace Services
             Dim safeTotal As Integer = Math.Max(1, totalFiles)
             Dim idx As Integer = Math.Max(0, fileIndex - 1)
             Dim ratio As Double = (idx + Math.Max(0.0R, Math.Min(1.0R, docProgress))) / safeTotal
-            Dim pct As Integer = CInt(Math.Max(0, Math.Min(100, Math.Round(ratio * 100.0R))))
+            Dim pct As Double = Math.Max(0, Math.Min(100, Math.Round(ratio * 1000.0R) / 10.0R))
             cb(pct, text)
         End Sub
 
@@ -436,7 +470,7 @@ Namespace Services
                         Dim g As Guid = Guid.Empty
                         If Not TryGetDefinitionGuid(d, g) Then Continue For
 
-                        Dim name = d.Name
+                        Dim name = NormalizeName(d.Name)
                         If Not map.ContainsKey(name) Then map(name) = New List(Of Guid)()
                         map(name).Add(g)
                     Next
@@ -469,6 +503,7 @@ Namespace Services
         Private NotInheritable Class FamilyAuditPack
             Public Property Summary As DataTable
             Public Property Detail As DataTable
+            Public Property Index As DataTable
         End Class
 
         Private NotInheritable Class Auditors
@@ -477,21 +512,22 @@ Namespace Services
                 If mode = 1 Then
                     Dim dt As New DataTable("ProjectParams")
                     dt.Columns.Add("RvtName", GetType(String))
-                    dt.Columns.Add("Scope", GetType(String))
+                    dt.Columns.Add("RvtPath", GetType(String))
                     dt.Columns.Add("ParamName", GetType(String))
                     dt.Columns.Add("ParamKind", GetType(String))
-                    dt.Columns.Add("ProjectGuid", GetType(String))
+                    dt.Columns.Add("RvtGuid", GetType(String))
                     dt.Columns.Add("FileGuid", GetType(String))
                     dt.Columns.Add("Result", GetType(String))
                     dt.Columns.Add("Notes", GetType(String))
                     Return dt
                 Else
-                    Dim dt As New DataTable("FamilySharedParams")
+                    Dim dt As New DataTable("FamilyParams")
                     dt.Columns.Add("RvtName", GetType(String))
-                    dt.Columns.Add("Scope", GetType(String))
+                    dt.Columns.Add("RvtPath", GetType(String))
                     dt.Columns.Add("FamilyName", GetType(String))
                     dt.Columns.Add("FamilyCategory", GetType(String))
                     dt.Columns.Add("ParamName", GetType(String))
+                    dt.Columns.Add("IsShared", GetType(String))
                     dt.Columns.Add("FamilyGuid", GetType(String))
                     dt.Columns.Add("FileGuid", GetType(String))
                     dt.Columns.Add("Result", GetType(String))
@@ -503,12 +539,13 @@ Namespace Services
             Public Shared Sub AddOpenFailRow(dt As DataTable, rvtName As String, rvtPath As String, scope As String, result As String, notes As String)
                 Dim r = dt.NewRow()
                 If dt.Columns.Contains("RvtName") Then r("RvtName") = If(rvtName, "")
-                If dt.Columns.Contains("Scope") Then r("Scope") = scope
+                If dt.Columns.Contains("RvtPath") Then r("RvtPath") = If(rvtPath, "")
                 If dt.Columns.Contains("FamilyName") Then r("FamilyName") = ""
                 If dt.Columns.Contains("FamilyCategory") Then r("FamilyCategory") = ""
                 If dt.Columns.Contains("ParamName") Then r("ParamName") = ""
                 If dt.Columns.Contains("ParamKind") Then r("ParamKind") = ""
-                If dt.Columns.Contains("ProjectGuid") Then r("ProjectGuid") = ""
+                If dt.Columns.Contains("RvtGuid") Then r("RvtGuid") = ""
+                If dt.Columns.Contains("IsShared") Then r("IsShared") = ""
                 If dt.Columns.Contains("FamilyGuid") Then r("FamilyGuid") = ""
                 If dt.Columns.Contains("FileGuid") Then r("FileGuid") = ""
                 If dt.Columns.Contains("Result") Then r("Result") = result
@@ -524,13 +561,30 @@ Namespace Services
 
                 Dim dt As New DataTable("ProjectParams")
                 dt.Columns.Add("RvtName", GetType(String))
-                dt.Columns.Add("Scope", GetType(String))
+                dt.Columns.Add("RvtPath", GetType(String))
                 dt.Columns.Add("ParamName", GetType(String))
                 dt.Columns.Add("ParamKind", GetType(String))
-                dt.Columns.Add("ProjectGuid", GetType(String))
+                dt.Columns.Add("RvtGuid", GetType(String))
                 dt.Columns.Add("FileGuid", GetType(String))
                 dt.Columns.Add("Result", GetType(String))
                 dt.Columns.Add("Notes", GetType(String))
+
+                Dim speByName As New Dictionary(Of String, List(Of Guid))(StringComparer.OrdinalIgnoreCase)
+                Try
+                    For Each spe As SharedParameterElement In New FilteredElementCollector(doc).OfClass(GetType(SharedParameterElement)).Cast(Of SharedParameterElement)()
+                        Dim key As String = NormalizeName(SafeParamElementName(spe))
+                        Dim g As Guid = Guid.Empty
+                        Try
+                            g = spe.GuidValue
+                        Catch
+                            g = Guid.Empty
+                        End Try
+                        If g = Guid.Empty Then Continue For
+                        If Not speByName.ContainsKey(key) Then speByName(key) = New List(Of Guid)()
+                        speByName(key).Add(g)
+                    Next
+                Catch
+                End Try
 
                 Dim bindings As BindingMap = doc.ParameterBindings
                 Dim iter As DefinitionBindingMapIterator = bindings.ForwardIterator()
@@ -561,9 +615,7 @@ Namespace Services
                     If Not moved Then Exit While
 
                     idx += 1
-                    If progress IsNot Nothing AndAlso (idx = 1 OrElse idx = total OrElse idx Mod 120 = 0) Then
-                        progress(idx, Math.Max(1, total))
-                    End If
+                    If progress IsNot Nothing Then progress(idx, Math.Max(1, total))
 
                     Dim def As Definition = Nothing
                     Dim binding As ElementBinding = Nothing
@@ -579,6 +631,7 @@ Namespace Services
 
                     Dim name As String = ""
                     Try : name = def.Name : Catch : name = "" : End Try
+                    Dim normName As String = NormalizeName(name)
 
                     Dim kind As String = "Project"
                     Dim projGuid As String = ""
@@ -587,28 +640,55 @@ Namespace Services
                     Dim notes As String = ""
 
                     Dim isShared As Boolean = TypeOf def Is ExternalDefinition
+                    Dim docGuid As Guid = Guid.Empty
+                    Dim docGuids As List(Of Guid) = Nothing
                     If isShared Then
                         kind = "Shared"
-                        Dim gProj As Guid = Guid.Empty
                         Try
-                            gProj = DirectCast(def, ExternalDefinition).GUID
+                            docGuid = DirectCast(def, ExternalDefinition).GUID
                         Catch
-                            gProj = Guid.Empty
+                            docGuid = Guid.Empty
                         End Try
-                        projGuid = If(gProj = Guid.Empty, "", gProj.ToString())
+                        If docGuid <> Guid.Empty Then docGuids = New List(Of Guid)() From {docGuid}
+                    Else
+                        Dim list As List(Of Guid) = Nothing
+                        If speByName.TryGetValue(normName, list) Then
+                            isShared = True
+                            kind = "Shared"
+                            docGuids = New List(Of Guid)(list)
+                            docGuid = docGuids.FirstOrDefault()
+                        End If
+                    End If
 
+                    If isShared Then
+                        projGuid = If(docGuid = Guid.Empty, "", docGuid.ToString())
                         Dim fileGuids As List(Of Guid) = Nothing
-                        If fileMap IsNot Nothing AndAlso fileMap.TryGetValue(name, fileGuids) Then
+                        If fileMap IsNot Nothing AndAlso fileMap.TryGetValue(normName, fileGuids) Then
                             fileGuid = String.Join("; ", fileGuids.Select(Function(x) x.ToString()).Distinct().ToArray())
-                            If fileGuids.Count > 1 Then notes = "Shared parameter file에 동일 이름 GUID가 여러 개 존재"
-
-                            If gProj <> Guid.Empty AndAlso fileGuids.Any(Function(x) x = gProj) Then
-                                result = If(fileGuids.Count > 1, "OK(MULTI_IN_FILE)", "OK")
-                            Else
-                                result = "MISMATCH"
+                            If docGuids Is Nothing Then docGuids = New List(Of Guid)()
+                            Dim hit As Boolean = False
+                            For Each g In fileGuids
+                                If docGuids.Any(Function(x) x = g) Then
+                                    hit = True
+                                    Exit For
+                                End If
+                            Next
+                            result = If(hit, If(fileGuids.Count > 1, "OK(MULTI_IN_FILE)", "OK"), "MISMATCH")
+                            If result = "MISMATCH" Then
+                                notes = "RVT의 GUID와 Shared Parameter 파일 GUID 불일치"
                             End If
                         Else
                             result = "NOT_FOUND_IN_FILE"
+                            notes = "Shared Parameter 파일에서 동일 이름을 찾지 못함"
+                        End If
+
+                        If result = "OK" OrElse result = "OK(MULTI_IN_FILE)" OrElse result = "MISMATCH" Then
+                            If fileGuids IsNot Nothing AndAlso fileGuids.Count > 1 Then
+                                notes = AppendNote(notes, "파일 내 동일 이름 GUID 여러 개")
+                            End If
+                            If docGuids IsNot Nothing AndAlso docGuids.Count > 1 Then
+                                notes = AppendNote(notes, "문서 내 동일 이름 GUID 여러 개")
+                            End If
                         End If
                     Else
                         result = "PROJECT_PARAM"
@@ -616,10 +696,10 @@ Namespace Services
 
                     Dim r = dt.NewRow()
                     r("RvtName") = If(rvtName, "")
-                    r("Scope") = "Project"
+                    r("RvtPath") = If(rvtPath, "")
                     r("ParamName") = name
                     r("ParamKind") = kind
-                    r("ProjectGuid") = projGuid
+                    r("RvtGuid") = projGuid
                     r("FileGuid") = fileGuid
                     r("Result") = result
                     r("Notes") = notes
@@ -629,24 +709,20 @@ Namespace Services
                 Return dt
             End Function
 
+            Private Shared Function AppendNote(existing As String, note As String) As String
+                If String.IsNullOrWhiteSpace(existing) Then Return note
+                If String.IsNullOrWhiteSpace(note) Then Return existing
+                Return existing & "; " & note
+            End Function
+
             Public Shared Function RunFamilyAudit(doc As Document,
                                                   fileMap As Dictionary(Of String, List(Of Guid)),
                                                   rvtName As String,
                                                   rvtPath As String,
-                                                  Optional progress As Action(Of Integer, Integer, String) = Nothing) As FamilyAuditPack
+                                                  Optional progress As Action(Of Integer, Integer, String) = Nothing,
+                                                  Optional includeAnnotation As Boolean = False) As FamilyAuditPack
 
                 Dim pack As New FamilyAuditPack()
-
-                Dim dtSum As New DataTable("FamilySharedParams")
-                dtSum.Columns.Add("RvtName", GetType(String))
-                dtSum.Columns.Add("Scope", GetType(String))
-                dtSum.Columns.Add("FamilyName", GetType(String))
-                dtSum.Columns.Add("FamilyCategory", GetType(String))
-                dtSum.Columns.Add("ParamName", GetType(String))
-                dtSum.Columns.Add("FamilyGuid", GetType(String))
-                dtSum.Columns.Add("FileGuid", GetType(String))
-                dtSum.Columns.Add("Result", GetType(String))
-                dtSum.Columns.Add("Notes", GetType(String))
 
                 Dim dtDet As New DataTable("FamilyParamDetail")
                 dtDet.Columns.Add("RvtName", GetType(String))
@@ -654,14 +730,20 @@ Namespace Services
                 dtDet.Columns.Add("FamilyName", GetType(String))
                 dtDet.Columns.Add("FamilyCategory", GetType(String))
                 dtDet.Columns.Add("ParamName", GetType(String))
+                dtDet.Columns.Add("ParamKind", GetType(String))
                 dtDet.Columns.Add("IsShared", GetType(String))
-                dtDet.Columns.Add("ParamGroup", GetType(String))
-                dtDet.Columns.Add("ParamType", GetType(String))
-                dtDet.Columns.Add("IsInstance", GetType(String))
                 dtDet.Columns.Add("FamilyGuid", GetType(String))
                 dtDet.Columns.Add("FileGuid", GetType(String))
                 dtDet.Columns.Add("Result", GetType(String))
                 dtDet.Columns.Add("Notes", GetType(String))
+
+                Dim dtIdx As New DataTable("FamilyIndex")
+                dtIdx.Columns.Add("RvtName", GetType(String))
+                dtIdx.Columns.Add("RvtPath", GetType(String))
+                dtIdx.Columns.Add("FamilyName", GetType(String))
+                dtIdx.Columns.Add("FamilyCategory", GetType(String))
+                dtIdx.Columns.Add("TotalParamCount", GetType(Integer))
+                dtIdx.Columns.Add("SharedParamCount", GetType(Integer))
 
                 Dim fams = New FilteredElementCollector(doc).
                     OfClass(GetType(Family)).
@@ -675,9 +757,7 @@ Namespace Services
                 For Each fam As Family In fams
                     idx += 1
 
-                    If progress IsNot Nothing AndAlso (idx = 1 OrElse idx = total OrElse idx Mod 40 = 0) Then
-                        progress(idx, total, fam.Name)
-                    End If
+                    If progress IsNot Nothing Then progress(idx, total, fam.Name)
 
                     Dim famName = fam.Name
                     Dim famCat = ""
@@ -685,6 +765,40 @@ Namespace Services
                         If fam.FamilyCategory IsNot Nothing Then famCat = fam.FamilyCategory.Name
                     Catch
                         famCat = ""
+                    End Try
+
+                    Try
+                        If fam.FamilyCategory IsNot Nothing Then
+                            Dim catType As CategoryType
+                            Try
+                                catType = fam.FamilyCategory.CategoryType
+                            Catch
+                                catType = CType(-1, CategoryType)
+                            End Try
+                            If catType = CategoryType.Annotation AndAlso Not includeAnnotation Then
+                                Continue For
+                            End If
+                        End If
+                    Catch
+                    End Try
+
+                    Dim skip As Boolean = False
+                    Try
+                        If fam.IsInPlace Then skip = True
+                    Catch
+                        skip = False
+                    End Try
+                    If skip Then Continue For
+
+                    Try
+                        Dim p = fam.GetType().GetProperty("IsEditable", BindingFlags.Public Or BindingFlags.Instance)
+                        If p IsNot Nothing Then
+                            Dim v = p.GetValue(fam, Nothing)
+                            If TypeOf v Is Boolean AndAlso Not DirectCast(v, Boolean) Then
+                                Continue For
+                            End If
+                        End If
+                    Catch
                     End Try
 
                     Dim famDoc As Document = Nothing
@@ -710,79 +824,91 @@ Namespace Services
 
                         Dim fm As FamilyManager = famDoc.FamilyManager
                         If fm Is Nothing Then
-                            AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, "", "N/A", "", "", "", "", "", "OPEN_FAIL", "FamilyManager 없음")
+                            AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, "", "N/A", "", "", "", "OPEN_FAIL", "FamilyManager 없음")
                             Continue For
                         End If
 
+                        Dim totalParamCount As Integer = 0
+                        Dim sharedCount As Integer = 0
+
                         For Each fp As FamilyParameter In fm.Parameters
                             If fp Is Nothing Then Continue For
+                            totalParamCount += 1
 
                             Dim pName As String = ""
                             Try : pName = fp.Definition.Name : Catch : pName = "" : End Try
+                            Dim normParamName As String = NormalizeName(pName)
 
-                            Dim isSharedBool As Boolean = False
-                            Try : isSharedBool = fp.IsShared : Catch : isSharedBool = False : End Try
-
-                            Dim paramGroup As String = ""
-                            Try : paramGroup = fp.Definition.ParameterGroup.ToString() : Catch : paramGroup = "" : End Try
-
-                            Dim paramType As String = ""
-                            Try : paramType = GetParamTypeName(fp.Definition) : Catch : paramType = "" : End Try
-
-                            Dim isInst As String = ""
-                            Try : isInst = If(fp.IsInstance, "Y", "N") : Catch : isInst = "" : End Try
+                            Dim paramKind As String = GetFamilyParamKind(fp)
+                            Dim isSharedBool As Boolean = String.Equals(paramKind, "Shared", StringComparison.OrdinalIgnoreCase)
+                            If isSharedBool Then sharedCount += 1
 
                             Dim famGuid As String = ""
                             Dim fileGuid As String = ""
                             Dim res As String = ""
                             Dim notes As String = ""
 
-                            If isSharedBool Then
-                                Dim gFam As Guid = Guid.Empty
-                                If TryGetFamilyParameterGuid(fp, gFam) Then
-                                    famGuid = gFam.ToString()
+                    If isSharedBool Then
+                        Dim gFam As Guid = Guid.Empty
+                        If TryGetFamilyParameterGuid(fp, gFam) Then
+                            famGuid = gFam.ToString()
 
-                                    Dim fileGuids As List(Of Guid) = Nothing
-                                    If fileMap.TryGetValue(pName, fileGuids) Then
-                                        fileGuid = String.Join("; ", fileGuids.Select(Function(x) x.ToString()).Distinct().ToArray())
-                                        If fileGuids.Count > 1 Then notes = "Shared parameter file에 동일 이름 GUID 여러 개"
+                            Dim fileGuids As List(Of Guid) = Nothing
+                            If fileMap.TryGetValue(normParamName, fileGuids) Then
+                                fileGuid = String.Join("; ", fileGuids.Select(Function(x) x.ToString()).Distinct().ToArray())
 
-                                        If fileGuids.Any(Function(x) x = gFam) Then
-                                            res = If(fileGuids.Count > 1, "OK(MULTI_IN_FILE)", "OK")
-                                        Else
-                                            res = "MISMATCH"
-                                        End If
-                                    Else
-                                        res = "NOT_FOUND_IN_FILE"
-                                    End If
+                                If fileGuids.Any(Function(x) x = gFam) Then
+                                    res = If(fileGuids.Count > 1, "OK(MULTI_IN_FILE)", "OK")
                                 Else
-                                    res = "GUID_FAIL"
-                                    notes = "FamilyParameter GUID 추출 실패"
+                                    res = "MISMATCH"
                                 End If
-
-                                Dim rs = dtSum.NewRow()
-                                rs("RvtName") = If(rvtName, "")
-                                rs("Scope") = "Family"
-                                rs("FamilyName") = famName
-                                rs("FamilyCategory") = famCat
-                                rs("ParamName") = pName
-                                rs("FamilyGuid") = famGuid
-                                rs("FileGuid") = fileGuid
-                                rs("Result") = res
-                                rs("Notes") = notes
-                                dtSum.Rows.Add(rs)
                             Else
-                                res = "NON_SHARED"
+                                res = "NOT_FOUND_IN_FILE"
                             End If
+                        Else
+                            res = "GUID_FAIL"
+                            notes = "FamilyParameter GUID 추출 실패"
+                        End If
+                    ElseIf String.Equals(paramKind, "BuiltIn", StringComparison.OrdinalIgnoreCase) Then
+                        res = "BUILTIN"
+                    ElseIf String.Equals(paramKind, "Family", StringComparison.OrdinalIgnoreCase) Then
+                        res = "FAMILY_PARAM"
+                    Else
+                        res = "FAMILY_PARAM"
+                    End If
 
-                            AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, pName,
-                                         If(isSharedBool, "Y", "N"),
-                                         paramGroup, paramType, isInst,
-                                         famGuid, fileGuid, res, notes)
+                    If isSharedBool Then
+                        If res = "NOT_FOUND_IN_FILE" Then
+                            notes = "Shared Parameter 파일에서 동일 이름을 찾지 못함"
+                        ElseIf res = "MISMATCH" Then
+                            notes = "RVT의 GUID와 Shared Parameter 파일 GUID 불일치"
+                        End If
+
+                        If res = "OK" OrElse res = "OK(MULTI_IN_FILE)" OrElse res = "MISMATCH" Then
+                            Dim fileGuids As List(Of Guid) = Nothing
+                            If fileMap.TryGetValue(normParamName, fileGuids) AndAlso fileGuids IsNot Nothing AndAlso fileGuids.Count > 1 Then
+                                notes = AppendNote(notes, "파일 내 동일 이름 GUID 여러 개")
+                            End If
+                        End If
+                    End If
+
+                    AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, pName,
+                                 paramKind,
+                                 If(isSharedBool, "Y", "N"),
+                                 famGuid, fileGuid, res, notes)
                         Next
 
+                        Dim rIdx = dtIdx.NewRow()
+                        rIdx("RvtName") = If(rvtName, "")
+                        rIdx("RvtPath") = If(rvtPath, "")
+                        rIdx("FamilyName") = If(famName, "")
+                        rIdx("FamilyCategory") = If(famCat, "")
+                        rIdx("TotalParamCount") = totalParamCount
+                        rIdx("SharedParamCount") = sharedCount
+                        dtIdx.Rows.Add(rIdx)
+
                     Catch ex As Exception
-                        AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, "", "N/A", "", "", "", "", "", "OPEN_FAIL", ex.Message)
+                        AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, "", "N/A", "", "", "", "OPEN_FAIL", ex.Message)
 
                     Finally
                         If famDoc IsNot Nothing Then
@@ -794,8 +920,9 @@ Namespace Services
                     End Try
                 Next
 
-                pack.Summary = dtSum
+                pack.Summary = Nothing
                 pack.Detail = dtDet
+                pack.Index = dtIdx
                 Return pack
             End Function
 
@@ -805,10 +932,8 @@ Namespace Services
                                             famName As String,
                                             famCat As String,
                                             pName As String,
+                                            paramKind As String,
                                             isShared As String,
-                                            pGroup As String,
-                                            pType As String,
-                                            isInst As String,
                                             famGuid As String,
                                             fileGuid As String,
                                             res As String,
@@ -819,10 +944,8 @@ Namespace Services
                 r("FamilyName") = If(famName, "")
                 r("FamilyCategory") = If(famCat, "")
                 r("ParamName") = If(pName, "")
+                r("ParamKind") = If(paramKind, "")
                 r("IsShared") = If(isShared, "")
-                r("ParamGroup") = If(pGroup, "")
-                r("ParamType") = If(pType, "")
-                r("IsInstance") = If(isInst, "")
                 r("FamilyGuid") = If(famGuid, "")
                 r("FileGuid") = If(fileGuid, "")
                 r("Result") = If(res, "")
@@ -830,7 +953,18 @@ Namespace Services
                 dt.Rows.Add(r)
             End Sub
 
-            Private Shared Function SafeParamElementName(pe As ParameterElement) As String
+            Private Shared Function GetFamilyParamKind(fp As FamilyParameter) As String
+                If fp Is Nothing Then Return "None"
+                Dim isSharedFlag As Boolean = False
+                Try : isSharedFlag = fp.IsShared : Catch : isSharedFlag = False : End Try
+                If isSharedFlag Then Return "Shared"
+                Dim idVal As Integer = 0
+                Try : idVal = fp.Id.IntegerValue : Catch : idVal = 0 : End Try
+                If idVal < 0 Then Return "BuiltIn"
+                Return "Family"
+            End Function
+
+            Private Shared Function SafeParamElementName(pe As Element) As String
                 Try
                     Return pe.Name
                 Catch
@@ -838,6 +972,7 @@ Namespace Services
                 End Try
             End Function
 
+            
             Private Shared Function TryGetFamilyParameterGuid(fp As FamilyParameter, ByRef g As Guid) As Boolean
                 g = Guid.Empty
                 If fp Is Nothing Then Return False

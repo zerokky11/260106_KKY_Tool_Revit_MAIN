@@ -41,7 +41,10 @@ function applyUpdate({ percent, subtitle, detail }) {
     ensure();
     const pct = Math.max(0, Math.min(100, Number(percent) || 0));
     if (barFillEl) barFillEl.style.width = `${pct}%`;
-    if (pctEl) pctEl.textContent = `${Math.round(pct)}%`;
+    if (pctEl) {
+        const label = Number.isInteger(pct) ? `${pct.toFixed(0)}%` : `${pct.toFixed(1)}%`;
+        pctEl.textContent = label;
+    }
     if (detailEl && subtitle != null) detailEl.textContent = subtitle;
     if (metaEl && detail != null) metaEl.textContent = detail;
 }

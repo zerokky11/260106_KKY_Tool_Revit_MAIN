@@ -30,7 +30,15 @@ Namespace Global.System.Web.Script.Serialization
 
             If GetType(T) Is GetType(Dictionary(Of String, Object)) Then
                 Dim root As JsonNode = JsonNode.Parse(input)
-                Dim converted = CType(ConvertNode(root), Dictionary(Of String, Object))
+                If root Is Nothing Then
+                    Return Nothing
+                End If
+
+                Dim converted = TryCast(ConvertNode(root), Dictionary(Of String, Object))
+                If converted Is Nothing Then
+                    Return Nothing
+                End If
+
                 Return CType(CType(converted, Object), T)
             End If
 
