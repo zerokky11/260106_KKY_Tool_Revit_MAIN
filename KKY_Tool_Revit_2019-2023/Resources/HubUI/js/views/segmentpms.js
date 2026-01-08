@@ -1,4 +1,5 @@
 import { clear, div, toast, setBusy, showExcelSavedDialog, chooseExcelMode } from '../core/dom.js';
+import { createRvtTable, renderRvtRows, getRvtName } from './rvtTable.js';
 import { ProgressDialog } from '../core/progress.js';
 import { post, onHost } from '../core/bridge.js';
 
@@ -103,9 +104,7 @@ export function renderSegmentPms(root) {
   exActions.append(btnAddRvt, btnAddFolder, btnRemoveSel, btnClearAll, btnExtract, btnSaveExtract);
   exHeader.append(exActions);
 
-  const rvtTable = document.createElement('table'); rvtTable.className = 'segmentpms-table';
-  rvtTable.innerHTML = '<thead><tr><th><input type="checkbox"></th><th>파일 경로</th></tr></thead><tbody></tbody>';
-  const rvtBody = rvtTable.querySelector('tbody');
+  const { table: rvtTable, tbody: rvtBody, master: rvtMaster } = createRvtTable();
   const rvtBox = div('segmentpms-rvtlist');
   rvtBox.append(rvtTable);
   const extractInfo = div('segmentpms-summary'); extractInfo.textContent = '추출 상태: 미실행';
@@ -150,33 +149,28 @@ export function renderSegmentPms(root) {
 
   function renderRvtList() {
     const allChecked = state.rvtList.length > 0 && state.rvtList.every(f => state.rvtChecked.has(f));
-    const master = rvtTable.querySelector('thead input[type="checkbox"]');
-    master.checked = allChecked;
-    master.disabled = state.rvtList.length === 0;
-    master.onchange = () => {
-      if (master.checked) state.rvtChecked = new Set(state.rvtList);
+    rvtMaster.checked = allChecked;
+    rvtMaster.disabled = state.rvtList.length === 0;
+    rvtMaster.onchange = () => {
+      if (rvtMaster.checked) state.rvtChecked = new Set(state.rvtList);
       else state.rvtChecked.clear();
       renderRvtList();
       updateButtons();
     };
-    rvtBody.innerHTML = '';
-    if (!state.rvtList.length) {
-      const emptyRow = document.createElement('tr');
-      const emptyCell = document.createElement('td'); emptyCell.colSpan = 2; emptyCell.textContent = '등록된 RVT가 없습니다.';
-      emptyRow.append(emptyCell);
-      rvtBody.append(emptyRow);
-      updateButtons();
-      return;
-    }
-    state.rvtList.forEach(p => {
-      const tr = document.createElement('tr');
-      const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = state.rvtChecked.has(p);
-      ck.onchange = () => { if (ck.checked) state.rvtChecked.add(p); else state.rvtChecked.delete(p); updateButtons(); };
-      const tdCk = document.createElement('td'); tdCk.append(ck);
-      const tdPath = document.createElement('td'); tdPath.textContent = p;
-      tr.append(tdCk, tdPath);
-      rvtBody.append(tr);
-    });
+    const rows = state.rvtList.map((p, idx) => ({
+      checked: state.rvtChecked.has(p),
+      index: idx + 1,
+      name: getRvtName(p),
+      path: p,
+      title: p,
+      onToggle: (checked) => {
+        if (checked) state.rvtChecked.add(p);
+        else state.rvtChecked.delete(p);
+        updateButtons();
+      }
+    }));
+    renderRvtRows(rvtBody, rows);
+    updateButtons();
   }
 
   function removeCheckedRvt() {

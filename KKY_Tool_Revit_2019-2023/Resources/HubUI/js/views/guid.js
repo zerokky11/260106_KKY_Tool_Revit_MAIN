@@ -1,4 +1,5 @@
 import { clear, div, toast, showExcelSavedDialog, chooseExcelMode } from '../core/dom.js';
+import { createRvtTable, renderRvtRows, getRvtName } from './rvtTable.js';
 import { ProgressDialog } from '../core/progress.js';
 import { post, onHost } from '../core/bridge.js';
 
@@ -76,13 +77,7 @@ export function renderGuid(root) {
 
     rvtHeader.append(rvtTitle, rvtActions);
     const rvtTableWrap = div('segmentpms-rvtlist guid-rvt-wrap');
-    const rvtTable = document.createElement('table'); rvtTable.className = 'segmentpms-table';
-    rvtTable.style.tableLayout = 'fixed';
-    const rvtColgroup = document.createElement('colgroup');
-    rvtColgroup.innerHTML = '<col style="width:40px"><col>';
-    rvtTable.append(rvtColgroup);
-    rvtTable.innerHTML += '<thead><tr><th><input type="checkbox"></th><th>파일 경로</th></tr></thead><tbody></tbody>';
-    const rvtBody = rvtTable.querySelector('tbody');
+    const { table: rvtTable, tbody: rvtBody, master: rvtMaster } = createRvtTable();
     rvtTableWrap.append(rvtTable);
     const rvtSummary = div('segmentpms-summary'); rvtSummary.textContent = '파일 0개';
     rvtSection.append(rvtHeader, rvtTableWrap, rvtSummary);
@@ -318,8 +313,8 @@ export function renderGuid(root) {
     function onExport() {
         if (state.busy) return;
         if (!hasRowsForExport()) { toast('저장할 결과가 없습니다.', 'warn'); return; }
-        const hasFamilyRows = state.includeFamily && (state.familyDetail.rows || []).length > 0;
-        const which = hasFamilyRows ? 'all' : 'project';
+        let which = 'project';
+        if (state.includeFamily) which = 'all';
         chooseExcelMode((mode) => {
             const excelMode = mode || 'fast';
             lastExcelPct = 0;
@@ -395,44 +390,30 @@ export function renderGuid(root) {
     function renderRvtList() {
         state.rvtList = dedupPaths(state.rvtList);
         state.rvtChecked = new Set(state.rvtList.filter(p => state.rvtChecked.has(p)));
-        const master = rvtTable.querySelector('thead input[type="checkbox"]');
         const allChecked = state.rvtList.length > 0 && state.rvtList.every(p => state.rvtChecked.has(p));
-        master.checked = allChecked;
-        master.indeterminate = state.rvtList.length > 0 && !allChecked && state.rvtChecked.size > 0;
-        const masterCell = master.closest('th');
-        if (masterCell) masterCell.style.textAlign = 'center';
-        master.onchange = () => {
-            if (master.checked) state.rvtChecked = new Set(state.rvtList);
+        rvtMaster.checked = allChecked;
+        rvtMaster.indeterminate = state.rvtList.length > 0 && !allChecked && state.rvtChecked.size > 0;
+        rvtMaster.disabled = state.rvtList.length === 0;
+        rvtMaster.onchange = () => {
+            if (rvtMaster.checked) state.rvtChecked = new Set(state.rvtList);
             else state.rvtChecked.clear();
             persistRvts();
             renderRvtList();
         };
-
-        rvtBody.innerHTML = '';
-        if (!state.rvtList.length) {
-            const tr = document.createElement('tr');
-            const td = document.createElement('td'); td.colSpan = 2; td.textContent = '등록된 RVT가 없습니다.';
-            tr.append(td); rvtBody.append(tr);
-            rvtSummary.textContent = '파일 0개';
-            syncRvtActionState();
-            return;
-        }
-        state.rvtList.forEach((p, i) => {
-            const tr = document.createElement('tr');
-            const tdCk = document.createElement('td');
-            tdCk.style.textAlign = 'center';
-            const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = state.rvtChecked.has(p);
-            ck.onchange = () => {
-                if (ck.checked) state.rvtChecked.add(p); else state.rvtChecked.delete(p);
+        const rows = state.rvtList.map((p, i) => ({
+            checked: state.rvtChecked.has(p),
+            index: i + 1,
+            name: getRvtName(p),
+            path: p,
+            title: p,
+            onToggle: (checked) => {
+                if (checked) state.rvtChecked.add(p); else state.rvtChecked.delete(p);
                 persistRvts();
                 renderRvtList();
-            };
-            tdCk.append(ck);
-            const tdPath = document.createElement('td'); tdPath.className = 'segmentpms-path-cell'; tdPath.textContent = p; tdPath.title = p;
-            tr.append(tdCk, tdPath);
-            rvtBody.append(tr);
-        });
-        rvtSummary.textContent = `파일 ${state.rvtList.length}개`;
+            }
+        }));
+        renderRvtRows(rvtBody, rows);
+        rvtSummary.textContent = state.rvtList.length ? `파일 ${state.rvtList.length}개` : '파일 0개';
         syncRvtActionState();
     }
 
@@ -668,8 +649,8 @@ export function renderGuid(root) {
     }
 
     function hasRowsForExport() {
-        const hasProject = (state.project.rows || []).length > 0;
-        const hasFamily = state.includeFamily && ((state.familyDetail.rows || []).length > 0 || (state.familyNav.rows || []).length > 0);
+        const hasProject = (state.project.columns || []).length > 0;
+        const hasFamily = state.includeFamily && ((state.familyDetail.columns || []).length > 0 || (state.familyNav.columns || []).length > 0);
         return hasProject || hasFamily;
     }
 
