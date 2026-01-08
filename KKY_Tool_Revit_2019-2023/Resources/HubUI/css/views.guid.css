@@ -17,14 +17,6 @@
   gap: 18px;
 }
 
-.guid-header-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-  min-width: 320px;
-}
-
 .guid-options,
 .guid-actions {
   display: flex;
@@ -72,27 +64,50 @@
   white-space: nowrap;
 }
 
-.guid-annotation .guid-checkbox {
+.guid-annotation .guid-checkbox-row {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-soft);
-  background: var(--surface-subtle);
   font-weight: 600;
   color: var(--text);
 }
 
-.guid-annotation .guid-checkbox input[type="checkbox"] {
+.guid-annotation .guid-checkbox-row input[type="checkbox"] {
   width: 16px;
   height: 16px;
   border-radius: 4px;
 }
 
-.guid-annotation .guid-checkbox.is-disabled {
+.guid-annotation .guid-checkbox-row.is-disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.guid-rvt-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.guid-rvt-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.guid-options {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.guid-mode-pill {
+  pointer-events: none;
 }
 
 .guid-section {

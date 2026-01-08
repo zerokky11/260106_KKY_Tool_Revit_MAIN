@@ -41,48 +41,48 @@ export function renderGuid(root) {
       <h2 class="feature-title">공유 파라미터 GUID 검토</h2>
       <p class="feature-sub">프로젝트/패밀리 파라미터 GUID를 공유 파라미터 파일과 비교합니다.</p>`;
 
-    const headerRight = div('guid-header-right');
-    const optionRow = div('guid-options');
-    const modeToggle = buildModeToggle();
-    const annotationToggle = buildAnnotationToggle();
-    optionRow.append(modeToggle, annotationToggle);
-
-    const actions = div('guid-actions');
-    const runBtn = cardBtn('검토 시작', onRun);
-    const exportBtn = cardBtn('엑셀 내보내기', onExport);
-    runBtn.classList.add('btn-primary');
-    exportBtn.classList.add('btn-outline');
-    exportBtn.disabled = true;
-    actions.append(runBtn, exportBtn);
-
-    headerRight.append(optionRow, actions);
-    header.append(headerLeft, headerRight);
+    header.append(headerLeft);
     page.append(header);
 
     const body = div('guid-body');
 
     // RVT section
-    const rvtSection = div('feature-results-panel guid-panel');
+    const rvtSection = div('feature-results-panel guid-panel segmentpms-extract');
     const rvtHeader = document.createElement('div');
-    rvtHeader.className = 'feature-results-head';
+    rvtHeader.className = 'feature-results-head guid-rvt-head';
     const rvtTitle = document.createElement('div');
     rvtTitle.className = 'guid-title';
     rvtTitle.innerHTML = '<h3>대상 RVT 목록</h3><p class="feature-note">비우면 현재 활성 문서를 사용합니다.</p>';
-    const rvtActions = div('feature-actions');
+    const rvtControls = div('guid-rvt-controls');
+    const optionRow = div('guid-options');
+    const modeToggle = buildModeToggle();
+    const annotationToggle = buildAnnotationToggle();
+    optionRow.append(modeToggle, annotationToggle);
+
+    const rvtActions = div('segmentpms-actions-row');
     let btnRemove = null;
+    let btnClear = null;
     const btnAdd = cardBtn('RVT 파일 추가', () => post('guid:add-files', { pick: 'files' }));
     const btnAddFolder = cardBtn('폴더 선택', () => post('guid:add-files', { pick: 'folder' }));
     btnRemove = cardBtn('선택 제거', onRemoveSelected);
     btnRemove.disabled = true;
-    const btnClear = cardBtn('목록 지우기', () => { state.rvtList = []; state.rvtChecked.clear(); persistRvts(); renderRvtList(); syncRvtActionState(); });
-    rvtActions.append(btnAdd, btnAddFolder, btnRemove, btnClear);
-    rvtHeader.append(rvtTitle, rvtActions);
-    const rvtTableWrap = div('guid-table-wrap guid-rvt-wrap');
-    const rvtTable = document.createElement('table'); rvtTable.className = 'guid-rvt-table';
-    rvtTable.innerHTML = '<thead><tr><th><input type="checkbox"></th><th>#</th><th>파일명</th><th>경로</th></tr></thead><tbody></tbody>';
+    btnClear = cardBtn('등록 목록 비우기', () => { state.rvtList = []; state.rvtChecked.clear(); persistRvts(); renderRvtList(); syncRvtActionState(); });
+    const runBtn = cardBtn('검토 시작', onRun);
+    const exportBtn = cardBtn('엑셀 내보내기', onExport);
+    runBtn.classList.add('btn-primary');
+    exportBtn.classList.add('btn-outline');
+    exportBtn.disabled = true;
+    rvtActions.append(btnAdd, btnAddFolder, btnRemove, btnClear, runBtn, exportBtn);
+
+    rvtControls.append(optionRow, rvtActions);
+    rvtHeader.append(rvtTitle, rvtControls);
+    const rvtTableWrap = div('segmentpms-rvtlist guid-rvt-wrap');
+    const rvtTable = document.createElement('table'); rvtTable.className = 'segmentpms-table guid-rvt-table';
+    rvtTable.innerHTML = '<thead><tr><th><input type="checkbox"></th><th>파일 경로</th></tr></thead><tbody></tbody>';
     const rvtBody = rvtTable.querySelector('tbody');
     rvtTableWrap.append(rvtTable);
-    rvtSection.append(rvtHeader, rvtTableWrap);
+    const rvtSummary = div('guid-hint'); rvtSummary.textContent = '파일 0개';
+    rvtSection.append(rvtHeader, rvtTableWrap, rvtSummary);
     body.append(rvtSection);
 
     // Result tabs
@@ -324,8 +324,8 @@ export function renderGuid(root) {
     function buildModeToggle() {
         const wrap = div('guid-mode');
         const projBadge = document.createElement('span');
-        projBadge.className = 'pill-tab guid-badge';
-        projBadge.innerHTML = `<span class="guid-badge-check">✓</span><span>Project(RVT) Parameter</span><span class="guid-option-badge">기본</span>`;
+        projBadge.className = 'pill-tab guid-badge guid-mode-pill';
+        projBadge.innerHTML = `<span class="guid-badge-check">✓</span><span>Project(RVT) Parameter - 기본</span>`;
 
         const famToggle = document.createElement('button');
         famToggle.type = 'button';
@@ -335,7 +335,7 @@ export function renderGuid(root) {
             const on = !!state.includeFamily;
             famToggle.classList.toggle('is-active', on);
             famToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
-            famToggle.innerHTML = `<span>Family(RFA) Parameter</span><span class="guid-option-badge">추가 검토</span>`;
+            famToggle.innerHTML = `<span>Family(RFA) Parameter 추가 검토</span><span class="guid-option-badge">${on ? 'ON' : 'OFF'}</span>`;
         };
         famToggle.onclick = () => { state.includeFamily = !state.includeFamily; syncAnnotationToggle(); syncTabState(); sync(); };
         sync();
@@ -348,7 +348,7 @@ export function renderGuid(root) {
     function buildAnnotationToggle() {
         const wrap = div('guid-annotation');
         const label = document.createElement('label');
-        label.className = 'guid-checkbox';
+        label.className = 'guid-checkbox-row';
         const ck = document.createElement('input');
         ck.type = 'checkbox';
         ck.checked = !!state.includeAnnotation;
@@ -401,8 +401,11 @@ export function renderGuid(root) {
         rvtBody.innerHTML = '';
         if (!state.rvtList.length) {
             const tr = document.createElement('tr');
-            const td = document.createElement('td'); td.colSpan = 4; td.textContent = '등록된 RVT가 없습니다.';
-            tr.append(td); rvtBody.append(tr); return;
+            const td = document.createElement('td'); td.colSpan = 2; td.textContent = '등록된 RVT가 없습니다.';
+            tr.append(td); rvtBody.append(tr);
+            rvtSummary.textContent = '파일 0개';
+            syncRvtActionState();
+            return;
         }
         state.rvtList.forEach((p, i) => {
             const tr = document.createElement('tr');
@@ -414,13 +417,11 @@ export function renderGuid(root) {
                 renderRvtList();
             };
             tdCk.append(ck);
-            const name = p?.split(/[\\/]/).pop() || '(Doc)';
-            const tdIdx = document.createElement('td'); tdIdx.textContent = i + 1;
-            const tdName = document.createElement('td'); tdName.textContent = name;
-            const tdPath = document.createElement('td'); tdPath.className = 'path-cell'; tdPath.textContent = p;
-            tr.append(tdCk, tdIdx, tdName, tdPath);
+            const tdPath = document.createElement('td'); tdPath.className = 'segmentpms-path-cell'; tdPath.textContent = p;
+            tr.append(tdCk, tdPath);
             rvtBody.append(tr);
         });
+        rvtSummary.textContent = `파일 ${state.rvtList.length}개`;
         syncRvtActionState();
     }
 
@@ -783,13 +784,14 @@ export function renderGuid(root) {
     function onRemoveSelected() {
         if (!state.rvtChecked.size) { toast('제거할 RVT를 선택하세요.', 'warn'); return; }
         state.rvtList = state.rvtList.filter(p => !state.rvtChecked.has(p));
-        state.rvtChecked = new Set(state.rvtList);
+        state.rvtChecked.clear();
         persistRvts();
         renderRvtList();
     }
 
     function syncRvtActionState() {
         if (btnRemove) btnRemove.disabled = state.rvtChecked.size === 0;
+        if (btnClear) btnClear.disabled = state.rvtList.length === 0;
     }
 
     function updateTabCounts() {

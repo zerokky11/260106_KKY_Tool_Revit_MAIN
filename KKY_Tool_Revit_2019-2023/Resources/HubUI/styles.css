@@ -135,6 +135,7 @@ body.kky-debug-outline * {
 .segmentpms-extract table input[type="checkbox"] { width:16px; height:16px; }
 .segmentpms-rvtlist { max-height: 170px; overflow-y: auto; border:1px solid #d9d9d9; border-radius:8px; padding:4px; }
 .segmentpms-rvtlist table { margin-top:0; }
+.segmentpms-path-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body::before { content:""; position:fixed; inset:0; z-index:9995; pointer-events:none; opacity:0; transition:opacity 0.2s ease; }
 body.is-busy::before { background:rgba(0,0,0,0.35); opacity:1; pointer-events:auto; }
 body[data-theme="dark"].is-busy::before { background:rgba(0,0,0,0.45); }

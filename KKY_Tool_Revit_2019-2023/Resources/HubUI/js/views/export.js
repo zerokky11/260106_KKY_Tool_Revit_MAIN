@@ -37,7 +37,7 @@ export function renderExport(root) {
       startProgress('COLLECT', '미리보기 준비 중…', targets.length);
       post('export:preview', { files: targets, unit: state.unit });
     });
-    preview.id = 'btnExPreview'; preview.disabled = true;
+    preview.id = 'btnExPreview'; preview.disabled = true; preview.classList.add('btn-primary');
     const save = cardBtn('엑셀 내보내기', () => {
       chooseExcelMode((mode) => {
         const payload = { rows: convertRowsForSave(), unit: state.unit, files: selectedFilePaths(), excelMode: mode || 'fast' };
@@ -46,16 +46,14 @@ export function renderExport(root) {
         post('export:save-excel', payload);
       });
     });
-    save.id = 'btnExSave'; save.disabled = true;
-    const actions = div('feature-actions');
-    actions.append(pick, addFilesBtn, preview, save);
-    header.append(heading, actions);
+    save.id = 'btnExSave'; save.disabled = true; save.classList.add('btn-outline');
+    header.append(heading);
     page.append(header);
 
     const wrap = div('kkyt-stack');
 
-    const left = div('kkyt-left feature-results-panel');
-    const lbar = div('kkyt-toolbar');
+    const left = div('kkyt-left feature-results-panel segmentpms-extract');
+    const lbar = div('segmentpms-actions-row');
     const removeBtn = cardBtn('선택 제거', () => {
       const checked = state.files.filter(f => f.checked);
       if (!checked.length) { toast('제거할 RVT를 선택하세요.', 'warn'); return; }
@@ -66,7 +64,7 @@ export function renderExport(root) {
       syncSaveState();
     });
     removeBtn.id = 'btnExRemove'; removeBtn.disabled = true;
-    const clearBtn = cardBtn('목록 지우기', () => {
+    const clearBtn = cardBtn('등록 목록 비우기', () => {
       state.files = [];
       state.folder = '';
       state.rowsRaw = [];
@@ -75,15 +73,15 @@ export function renderExport(root) {
       syncSaveState();
     });
     const unitToggle = buildUnitToggle();
-    lbar.append(removeBtn, clearBtn, unitToggle);
-    const listWrap = div('guid-table-wrap export-table-wrap');
-    const tblWrap = document.createElement('table'); tblWrap.className = 'guid-rvt-table export-rvt-table';
+    lbar.append(addFilesBtn, pick, removeBtn, clearBtn, preview, save);
+    const listWrap = div('segmentpms-rvtlist');
+    const tblWrap = document.createElement('table'); tblWrap.className = 'segmentpms-table export-rvt-table';
     const filesHead = document.createElement('thead');
     const filesBody = document.createElement('tbody');
     tblWrap.append(filesHead, filesBody);
     listWrap.append(tblWrap);
     const info = div('kkyt-hint'); info.textContent = '파일 0개';
-    left.append(lbar, listWrap, info);
+    left.append(lbar, listWrap, unitToggle, info);
 
     const right = div('kkyt-right feature-results-panel');
     const tbl = document.createElement('table'); tbl.className = 'kkyt-table';
@@ -154,7 +152,7 @@ export function renderExport(root) {
         master.onchange = () => { state.files = state.files.map(f => ({ ...f, checked: master.checked })); renderFiles(); };
         masterCell.append(master);
         headRow.append(masterCell);
-        ['#', '파일명', '경로'].forEach(text => { const th = document.createElement('th'); th.textContent = text; headRow.append(th); });
+        ['파일 경로'].forEach(text => { const th = document.createElement('th'); th.textContent = text; headRow.append(th); });
         filesHead.append(headRow);
 
         state.files.forEach((f, idx) => {
@@ -163,9 +161,7 @@ export function renderExport(root) {
           const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = !!f.checked;
           ck.onchange = () => { state.files[idx].checked = ck.checked; updateSelectionSummary(); syncPreviewState(); syncRemoveState(); };
           ckCell.append(ck); row.append(ckCell);
-          row.append(tdText(idx + 1));
-          row.append(tdText(f.name || f.path.split(/[/\\]/).pop() || '—'));
-          const pathCell = document.createElement('td'); pathCell.className = 'path-cell'; pathCell.textContent = f.rel || f.path;
+          const pathCell = document.createElement('td'); pathCell.className = 'segmentpms-path-cell'; pathCell.textContent = f.path || f.rel || f.name || '—';
           row.append(pathCell);
           filesBody.append(row);
         });
@@ -175,21 +171,25 @@ export function renderExport(root) {
     }
 
     function updateSelectionSummary() {
-        const folder = state.folder || (state.files[0] ? state.files[0].path?.replace?.(/[/\\][^/\\]+$/, '') : '');
         const picked = state.files.filter(f => f.checked).length;
-        info.textContent = `${folder ? ('경로: ' + folder + ' · ') : ''}파일 ${state.files.length}개 중 ${picked}개 선택`;
+        if (!state.files.length) {
+          info.textContent = '파일 0개';
+        } else {
+          info.textContent = `파일 ${state.files.length}개 중 ${picked}개 선택`;
+        }
     }
 
     function syncRemoveState() {
       const btn = document.getElementById('btnExRemove');
       if (btn) btn.disabled = state.files.every(f => !f.checked);
+      if (clearBtn) clearBtn.disabled = state.files.length === 0;
     }
 }
 
 function cardBtn(text, onClick) {
     const b = document.createElement('button');
     b.textContent = text;
-    b.className = 'card-action-btn';
+    b.className = 'btn card-btn';
     if (typeof onClick === 'function') b.addEventListener('click', onClick);
     return b;
 }
