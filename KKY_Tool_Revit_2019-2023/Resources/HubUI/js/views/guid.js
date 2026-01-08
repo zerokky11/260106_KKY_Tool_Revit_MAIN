@@ -76,8 +76,12 @@ export function renderGuid(root) {
 
     rvtHeader.append(rvtTitle, rvtActions);
     const rvtTableWrap = div('segmentpms-rvtlist guid-rvt-wrap');
-    const rvtTable = document.createElement('table'); rvtTable.className = 'segmentpms-table guid-rvt-table';
-    rvtTable.innerHTML = '<thead><tr><th><input type="checkbox"></th><th>파일 경로</th></tr></thead><tbody></tbody>';
+    const rvtTable = document.createElement('table'); rvtTable.className = 'segmentpms-table';
+    rvtTable.style.tableLayout = 'fixed';
+    const rvtColgroup = document.createElement('colgroup');
+    rvtColgroup.innerHTML = '<col style="width:40px"><col>';
+    rvtTable.append(rvtColgroup);
+    rvtTable.innerHTML += '<thead><tr><th><input type="checkbox"></th><th>파일 경로</th></tr></thead><tbody></tbody>';
     const rvtBody = rvtTable.querySelector('tbody');
     rvtTableWrap.append(rvtTable);
     const rvtSummary = div('segmentpms-summary'); rvtSummary.textContent = '파일 0개';
@@ -390,6 +394,8 @@ export function renderGuid(root) {
         const allChecked = state.rvtList.length > 0 && state.rvtList.every(p => state.rvtChecked.has(p));
         master.checked = allChecked;
         master.indeterminate = state.rvtList.length > 0 && !allChecked && state.rvtChecked.size > 0;
+        const masterCell = master.closest('th');
+        if (masterCell) masterCell.style.textAlign = 'center';
         master.onchange = () => {
             if (master.checked) state.rvtChecked = new Set(state.rvtList);
             else state.rvtChecked.clear();
@@ -409,6 +415,7 @@ export function renderGuid(root) {
         state.rvtList.forEach((p, i) => {
             const tr = document.createElement('tr');
             const tdCk = document.createElement('td');
+            tdCk.style.textAlign = 'center';
             const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = state.rvtChecked.has(p);
             ck.onchange = () => {
                 if (ck.checked) state.rvtChecked.add(p); else state.rvtChecked.delete(p);
