@@ -41,7 +41,13 @@ export function renderGuid(root) {
       <h2 class="feature-title">공유 파라미터 GUID 검토</h2>
       <p class="feature-sub">프로젝트/패밀리 파라미터 GUID를 공유 파라미터 파일과 비교합니다.</p>`;
 
-    header.append(headerLeft);
+    const headerRight = div('guid-header-right');
+    const optionRow = div('guid-options');
+    const modeToggle = buildModeToggle();
+    const annotationToggle = buildAnnotationToggle();
+    optionRow.append(modeToggle, annotationToggle);
+    headerRight.append(optionRow);
+    header.append(headerLeft, headerRight);
     page.append(header);
 
     const body = div('guid-body');
@@ -53,12 +59,6 @@ export function renderGuid(root) {
     const rvtTitle = document.createElement('div');
     rvtTitle.className = 'guid-title';
     rvtTitle.innerHTML = '<h3>대상 RVT 목록</h3><p class="feature-note">비우면 현재 활성 문서를 사용합니다.</p>';
-    const rvtControls = div('guid-rvt-controls');
-    const optionRow = div('guid-options');
-    const modeToggle = buildModeToggle();
-    const annotationToggle = buildAnnotationToggle();
-    optionRow.append(modeToggle, annotationToggle);
-
     const rvtActions = div('segmentpms-actions-row');
     let btnRemove = null;
     let btnClear = null;
@@ -74,14 +74,13 @@ export function renderGuid(root) {
     exportBtn.disabled = true;
     rvtActions.append(btnAdd, btnAddFolder, btnRemove, btnClear, runBtn, exportBtn);
 
-    rvtControls.append(optionRow, rvtActions);
-    rvtHeader.append(rvtTitle, rvtControls);
+    rvtHeader.append(rvtTitle, rvtActions);
     const rvtTableWrap = div('segmentpms-rvtlist guid-rvt-wrap');
     const rvtTable = document.createElement('table'); rvtTable.className = 'segmentpms-table guid-rvt-table';
     rvtTable.innerHTML = '<thead><tr><th><input type="checkbox"></th><th>파일 경로</th></tr></thead><tbody></tbody>';
     const rvtBody = rvtTable.querySelector('tbody');
     rvtTableWrap.append(rvtTable);
-    const rvtSummary = div('guid-hint'); rvtSummary.textContent = '파일 0개';
+    const rvtSummary = div('segmentpms-summary'); rvtSummary.textContent = '파일 0개';
     rvtSection.append(rvtHeader, rvtTableWrap, rvtSummary);
     body.append(rvtSection);
 
@@ -417,7 +416,7 @@ export function renderGuid(root) {
                 renderRvtList();
             };
             tdCk.append(ck);
-            const tdPath = document.createElement('td'); tdPath.className = 'segmentpms-path-cell'; tdPath.textContent = p;
+            const tdPath = document.createElement('td'); tdPath.className = 'segmentpms-path-cell'; tdPath.textContent = p; tdPath.title = p;
             tr.append(tdCk, tdPath);
             rvtBody.append(tr);
         });

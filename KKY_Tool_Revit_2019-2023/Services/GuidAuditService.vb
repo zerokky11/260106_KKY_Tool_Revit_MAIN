@@ -4,7 +4,6 @@ Option Strict On
 Imports System
 Imports System.Collections.Generic
 Imports System.Data
-Imports System.Diagnostics
 Imports System.IO
 Imports System.Linq
 Imports System.Reflection
@@ -754,19 +753,11 @@ Namespace Services
 
                 Dim total As Integer = Math.Max(1, fams.Count)
                 Dim idx As Integer = 0
-                Dim sw As Stopwatch = Stopwatch.StartNew()
-                Dim lastProgressMs As Long = -1
 
                 For Each fam As Family In fams
                     idx += 1
 
-                    If progress IsNot Nothing Then
-                        Dim nowMs As Long = sw.ElapsedMilliseconds
-                        If idx = 1 OrElse idx = total OrElse (nowMs - lastProgressMs) >= 150 Then
-                            progress(idx, total, fam.Name)
-                            lastProgressMs = nowMs
-                        End If
-                    End If
+                    If progress IsNot Nothing Then progress(idx, total, fam.Name)
 
                     Dim famName = fam.Name
                     Dim famCat = ""

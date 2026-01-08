@@ -80,7 +80,7 @@ export function renderExport(root) {
     const filesBody = document.createElement('tbody');
     tblWrap.append(filesHead, filesBody);
     listWrap.append(tblWrap);
-    const info = div('kkyt-hint'); info.textContent = '파일 0개';
+    const info = div('segmentpms-summary'); info.textContent = '파일 0개';
     left.append(lbar, listWrap, unitToggle, info);
 
     const right = div('kkyt-right feature-results-panel');
@@ -161,7 +161,7 @@ export function renderExport(root) {
           const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = !!f.checked;
           ck.onchange = () => { state.files[idx].checked = ck.checked; updateSelectionSummary(); syncPreviewState(); syncRemoveState(); };
           ckCell.append(ck); row.append(ckCell);
-          const pathCell = document.createElement('td'); pathCell.className = 'segmentpms-path-cell'; pathCell.textContent = f.path || f.rel || f.name || '—';
+          const pathCell = document.createElement('td'); pathCell.className = 'segmentpms-path-cell'; pathCell.textContent = f.path || f.rel || f.name || '—'; pathCell.title = f.path || f.rel || f.name || '';
           row.append(pathCell);
           filesBody.append(row);
         });

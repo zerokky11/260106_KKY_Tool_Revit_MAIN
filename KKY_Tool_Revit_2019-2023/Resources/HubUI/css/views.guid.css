@@ -17,6 +17,13 @@
   gap: 18px;
 }
 
+.guid-header-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .guid-options,
 .guid-actions {
   display: flex;
@@ -88,21 +95,6 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
-}
-
-.guid-rvt-controls {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.guid-options {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   flex-wrap: wrap;
 }
 
