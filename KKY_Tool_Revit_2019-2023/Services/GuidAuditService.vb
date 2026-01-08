@@ -824,7 +824,7 @@ Namespace Services
 
                         Dim fm As FamilyManager = famDoc.FamilyManager
                         If fm Is Nothing Then
-                            AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, "", "N/A", "", "", "OPEN_FAIL", "FamilyManager 없음")
+                            AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, "", "N/A", "", "", "", "OPEN_FAIL", "FamilyManager 없음")
                             Continue For
                         End If
 
@@ -908,7 +908,7 @@ Namespace Services
                         dtIdx.Rows.Add(rIdx)
 
                     Catch ex As Exception
-                        AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, "", "N/A", "", "", "OPEN_FAIL", ex.Message)
+                        AddDetailRow(dtDet, rvtName, rvtPath, famName, famCat, "", "N/A", "", "", "", "OPEN_FAIL", ex.Message)
 
                     Finally
                         If famDoc IsNot Nothing Then
@@ -955,9 +955,9 @@ Namespace Services
 
             Private Shared Function GetFamilyParamKind(fp As FamilyParameter) As String
                 If fp Is Nothing Then Return "None"
-                Dim shared As Boolean = False
-                Try : shared = fp.IsShared : Catch : shared = False : End Try
-                If shared Then Return "Shared"
+                Dim isSharedFlag As Boolean = False
+                Try : isSharedFlag = fp.IsShared : Catch : isSharedFlag = False : End Try
+                If isSharedFlag Then Return "Shared"
                 Dim idVal As Integer = 0
                 Try : idVal = fp.Id.IntegerValue : Catch : idVal = 0 : End Try
                 If idVal < 0 Then Return "BuiltIn"
