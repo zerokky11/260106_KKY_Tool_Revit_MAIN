@@ -182,11 +182,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: middle;
+  color: var(--text);
 }
 
 .guid-rvt-table thead th,
 .guid-table thead th {
-  background: color-mix(in oklab, var(--panel) 90%, #ffffff 10%);
+  background: var(--tableHeaderBg);
+  color: var(--tableHeaderText);
   position: sticky;
   top: 0;
   z-index: 1;
@@ -293,13 +295,13 @@
 }
 
 .guid-table-wrap {
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--border);
   border-radius: 12px;
   overflow: auto;
   max-height: none;
   min-height: 240px;
   flex: 1 1 auto;
-  background: var(--surface-subtle);
+  background: var(--panel);
   min-height: 0;
 }
 
@@ -394,14 +396,14 @@
 }
 
 .guid-table th {
-  color: var(--text-soft);
+  color: var(--tableHeaderText);
   font-weight: 600;
 }
 
 .guid-table tbody tr:nth-child(even) {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--rowBg);
 }
 
 .guid-table tbody tr:hover {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: var(--rowHoverBg);
 }
