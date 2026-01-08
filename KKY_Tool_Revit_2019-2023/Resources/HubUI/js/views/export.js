@@ -76,6 +76,10 @@ export function renderExport(root) {
     lbar.append(addFilesBtn, pick, removeBtn, clearBtn, preview, save);
     const listWrap = div('segmentpms-rvtlist');
     const tblWrap = document.createElement('table'); tblWrap.className = 'segmentpms-table export-rvt-table';
+    tblWrap.style.tableLayout = 'fixed';
+    const colgroup = document.createElement('colgroup');
+    colgroup.innerHTML = '<col style="width:40px"><col>';
+    tblWrap.append(colgroup);
     const filesHead = document.createElement('thead');
     const filesBody = document.createElement('tbody');
     tblWrap.append(filesHead, filesBody);
@@ -148,6 +152,7 @@ export function renderExport(root) {
         filesHead.innerHTML = '';
         const headRow = document.createElement('tr');
         const masterCell = document.createElement('th');
+        masterCell.style.textAlign = 'center';
         const master = document.createElement('input'); master.type = 'checkbox'; master.checked = allChecked;
         master.onchange = () => { state.files = state.files.map(f => ({ ...f, checked: master.checked })); renderFiles(); };
         masterCell.append(master);
@@ -155,9 +160,21 @@ export function renderExport(root) {
         ['파일 경로'].forEach(text => { const th = document.createElement('th'); th.textContent = text; headRow.append(th); });
         filesHead.append(headRow);
 
+        if (!state.files.length) {
+          const emptyRow = document.createElement('tr');
+          const emptyCell = document.createElement('td'); emptyCell.colSpan = 2; emptyCell.textContent = '등록된 RVT가 없습니다.';
+          emptyRow.append(emptyCell);
+          filesBody.append(emptyRow);
+          updateSelectionSummary();
+          syncPreviewState();
+          syncRemoveState();
+          return;
+        }
+
         state.files.forEach((f, idx) => {
           const row = document.createElement('tr');
           const ckCell = document.createElement('td');
+          ckCell.style.textAlign = 'center';
           const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = !!f.checked;
           ck.onchange = () => { state.files[idx].checked = ck.checked; updateSelectionSummary(); syncPreviewState(); syncRemoveState(); };
           ckCell.append(ck); row.append(ckCell);
