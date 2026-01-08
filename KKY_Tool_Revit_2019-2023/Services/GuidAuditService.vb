@@ -172,32 +172,6 @@ Namespace Services
             Return ExcelCore.PickAndSaveXlsx(sheetName, table, $"{sheetName}_{DateTime.Now:yyyyMMdd_HHmm}.xlsx", doAutoFit, progressChannel)
         End Function
 
-        ''' <summary>엑셀 내보내기 (다중 시트)</summary>
-        Public Shared Function ExportMulti(sheets As IList(Of KeyValuePair(Of String, DataTable)),
-                                           Optional excelMode As String = "fast",
-                                           Optional progressChannel As String = Nothing) As String
-            If sheets Is Nothing OrElse sheets.Count = 0 Then Return String.Empty
-            Dim hasRows As Boolean = False
-            For Each kv In sheets
-                If kv.Value IsNot Nothing AndAlso kv.Value.Rows.Count > 0 Then
-                    hasRows = True
-                    Exit For
-                End If
-            Next
-            If Not hasRows Then Return String.Empty
-
-            Dim doAutoFit As Boolean = False
-            Try
-                If String.Equals(excelMode, "normal", StringComparison.OrdinalIgnoreCase) Then
-                    doAutoFit = True
-                End If
-            Catch
-                doAutoFit = False
-            End Try
-            Dim fileName As String = $"GuidAudit_{DateTime.Now:yyyyMMdd_HHmm}.xlsx"
-            Return ExcelCore.PickAndSaveXlsxMulti(sheets, fileName, doAutoFit, progressChannel)
-        End Function
-
         Private Shared Function BuildTargets(app As UIApplication, rvtPaths As IEnumerable(Of String)) As List(Of TargetFile)
             Dim list As New List(Of TargetFile)()
             Dim dedup As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)

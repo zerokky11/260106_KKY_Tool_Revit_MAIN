@@ -154,6 +154,7 @@ export function renderExport(root) {
         const masterCell = document.createElement('th');
         masterCell.style.textAlign = 'center';
         const master = document.createElement('input'); master.type = 'checkbox'; master.checked = allChecked;
+        master.disabled = state.files.length === 0;
         master.onchange = () => { state.files = state.files.map(f => ({ ...f, checked: master.checked })); renderFiles(); };
         masterCell.append(master);
         headRow.append(masterCell);

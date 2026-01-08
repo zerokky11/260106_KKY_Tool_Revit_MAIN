@@ -90,12 +90,18 @@ export function renderGuid(root) {
 
     // Result tabs
     const tabs = div('feature-results-panel guid-results feature-tabs');
-    const tabHead = div('feature-results-head');
+    const tabHead = div('feature-results-head guid-results-head');
+    const tabHeadLeft = div('guid-results-tabs');
+    const tabHeadRight = div('guid-results-filters');
     const tabBtns = div('pill-tabs');
     const btnTabProject = document.createElement('button'); btnTabProject.type = 'button'; btnTabProject.className = 'pill-tab is-active'; btnTabProject.innerHTML = `<span class="pill-label">RVT 검토결과</span><span class="pill-count">0</span>`;
     const btnTabFamily = document.createElement('button'); btnTabFamily.type = 'button'; btnTabFamily.className = 'pill-tab'; btnTabFamily.innerHTML = `<span class="pill-label">Family 검토결과</span><span class="pill-count">0</span>`;
     tabBtns.append(btnTabProject, btnTabFamily);
-    tabHead.append(tabBtns);
+    tabHeadLeft.append(tabBtns);
+    const filterBar = buildFamilyFilter();
+    filterBar.classList.add('is-hidden');
+    tabHeadRight.append(filterBar);
+    tabHead.append(tabHeadLeft, tabHeadRight);
     tabs.append(tabHead);
 
     const tabPanels = div('guid-tab-panels');
@@ -116,13 +122,11 @@ export function renderGuid(root) {
     tabPanelProject.append(projWrap);
 
     const tabPanelFamily = div('guid-tab-panel is-hidden');
-    const detailWrap = div('guid-family-split');
-    const leftHeader = div('guid-family-header guid-family-left-header');
-    const rightHeader = div('guid-family-header guid-family-right-header');
+    const detailWrap = div('guid-detail-wrap');
     const navPane = div('guid-detail-nav feature-results-panel guid-scroll-box');
     const navList = document.createElement('ul'); navList.className = 'guid-nav-list';
     navPane.append(navList);
-    const filterBar = buildFamilyFilter();
+    const detailPane = div('guid-detail-pane');
     const familyUserSection = div('guid-section');
     const familyUserHeader = div('guid-section-header');
     const familyUserTitle = document.createElement('div'); familyUserTitle.className = 'guid-section-title'; familyUserTitle.textContent = '사용자 파라미터';
@@ -135,7 +139,7 @@ export function renderGuid(root) {
     const detailBody = document.createElement('tbody');
     detailTable.append(detailHead, detailBody);
     detailTableWrap.append(detailTable);
-    familyUserSection.append(familyEmpty, detailTableWrap);
+    familyUserSection.append(familyUserHeader, familyEmpty, detailTableWrap);
 
     const builtSection = div('guid-section');
     const builtHeader = div('guid-section-header');
@@ -150,18 +154,14 @@ export function renderGuid(root) {
     builtTable.append(builtHead, builtBody);
     builtTableWrap.append(builtTable);
     builtSection.append(builtHeader, builtTableWrap);
-    const leftBody = div('guid-family-body guid-family-left-body');
-    const rightBody = div('guid-family-body guid-family-right-body');
-    rightHeader.append(filterBar, familyUserHeader);
-    leftBody.append(navPane);
-    rightBody.append(familyUserSection, builtSection);
+    detailPane.append(familyUserSection, builtSection);
 
     builtToggle.onclick = () => {
         builtSection.classList.toggle('is-open');
         builtToggle.textContent = builtSection.classList.contains('is-open') ? '접기' : '펼치기';
         paintFamily();
     };
-    detailWrap.append(leftHeader, rightHeader, leftBody, rightBody);
+    detailWrap.append(navPane, detailPane);
     tabPanelFamily.append(detailWrap);
 
     tabPanels.append(tabPanelProject, tabPanelFamily);
@@ -679,10 +679,12 @@ export function renderGuid(root) {
         btnTabFamily.disabled = !state.includeFamily;
         tabPanelProject.classList.toggle('is-hidden', state.activeTab !== 'project');
         tabPanelFamily.classList.toggle('is-hidden', state.activeTab !== 'family');
+        filterBar.classList.toggle('is-hidden', state.activeTab !== 'family');
         if (state.activeTab === 'family' && !state.includeFamily) {
             state.activeTab = 'project';
             tabPanelProject.classList.remove('is-hidden');
             tabPanelFamily.classList.add('is-hidden');
+            filterBar.classList.add('is-hidden');
         }
         exportBtn.disabled = !hasRowsForExport();
         updateTabCounts();

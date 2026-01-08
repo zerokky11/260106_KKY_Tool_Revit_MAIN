@@ -31,25 +31,6 @@ Namespace Infrastructure
             Return String.Empty
         End Function
 
-        ' 저장 대화상자 + 다중 시트 저장
-        Public Function PickAndSaveXlsxMulti(sheets As IList(Of KeyValuePair(Of String, DataTable)), Optional defaultFileName As String = Nothing, Optional doAutoFit As Boolean = False, Optional progressChannel As String = Nothing) As String
-            If sheets Is Nothing OrElse sheets.Count = 0 Then Return String.Empty
-            Dim baseName As String = If(String.IsNullOrWhiteSpace(defaultFileName), "GuidAudit.xlsx", defaultFileName)
-            Using sfd As New SaveFileDialog()
-                sfd.Filter = "Excel Workbook (*.xlsx)|*.xlsx"
-                sfd.FileName = baseName
-                sfd.AddExtension = True
-                sfd.DefaultExt = "xlsx"
-                sfd.OverwritePrompt = True
-                sfd.RestoreDirectory = True
-                If sfd.ShowDialog() = DialogResult.OK Then
-                    SaveXlsxMulti(sfd.FileName, sheets, doAutoFit, progressChannel)
-                    Return sfd.FileName
-                End If
-            End Using
-            Return String.Empty
-        End Function
-
         ' 일반 테이블 저장
         Public Sub SaveXlsx(filePath As String, sheetName As String, table As DataTable, Optional doAutoFit As Boolean = False, Optional progressChannel As String = Nothing)
             If table Is Nothing Then Throw New ArgumentNullException(NameOf(table))
@@ -83,7 +64,6 @@ Namespace Infrastructure
                 Dim range As New CellRangeAddress(0, 0, 0, lastCol)
                 sh.SetAutoFilter(range)
             End If
-            sh.CreateFreezePane(0, 1)
 
             ' 바디
             For ri = 0 To table.Rows.Count - 1
@@ -100,80 +80,6 @@ Namespace Infrastructure
             If doAutoFit Then
                 AutoSizeAll(sh, table.Columns.Count)
             End If
-
-            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", totalRows, totalRows, Nothing, True)
-            SaveWorkbookToFile(wb, filePath)
-
-            Dim autoFitMessage As String = If(doAutoFit, "열 너비 자동 조정 중…", "빠른 모드: 열 너비 자동 조정 생략")
-            If doAutoFit Then
-                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
-                Global.KKY_Tool_Revit.Infrastructure.ExcelCore.TryAutoFitWithExcel(filePath)
-            Else
-                Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "AUTOFIT", autoFitMessage, totalRows, totalRows, Nothing, True)
-            End If
-
-            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "DONE", "엑셀 내보내기 완료", totalRows, totalRows, 100.0R, True)
-            wb.Close()
-        End Sub
-
-        ' 다중 시트 저장
-        Public Sub SaveXlsxMulti(filePath As String, sheets As IList(Of KeyValuePair(Of String, DataTable)), Optional doAutoFit As Boolean = False, Optional progressChannel As String = Nothing)
-            If sheets Is Nothing OrElse sheets.Count = 0 Then Throw New ArgumentNullException(NameOf(sheets))
-            Dim totalRows As Integer = 0
-            For Each kv In sheets
-                If kv.Value Is Nothing Then Continue For
-                totalRows += kv.Value.Rows.Count
-            Next
-            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Reset(progressChannel)
-            Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_INIT", "엑셀 워크북 준비", 0, totalRows, Nothing, True)
-            UI.Hub.UiBridgeExternalEvent.LogAutoFitDecision(doAutoFit, "ExcelCore.SaveXlsxMulti")
-
-            Dim wb As IWorkbook = New XSSFWorkbook()
-            Dim headFont = wb.CreateFont() : headFont.IsBold = True
-            Dim headStyle = wb.CreateCellStyle()
-            headStyle.SetFont(headFont)
-            headStyle.FillPattern = FillPattern.SolidForeground
-            headStyle.FillForegroundColor = IndexedColors.Grey25Percent.Index
-            SetThinBorders(headStyle)
-
-            Dim bodyStyle = wb.CreateCellStyle() : SetThinBorders(bodyStyle)
-            Dim current As Integer = 0
-
-            For Each kv In sheets
-                Dim table = kv.Value
-                If table Is Nothing Then Continue For
-                Dim sh = wb.CreateSheet(SafeSheetName(If(kv.Key, "Sheet1")))
-
-                Dim r0 = sh.CreateRow(0)
-                For ci = 0 To table.Columns.Count - 1
-                    Dim c = r0.CreateCell(ci)
-                    c.SetCellValue(table.Columns(ci).ColumnName)
-                    c.CellStyle = headStyle
-                Next
-
-                If table.Columns.Count > 0 Then
-                    Dim lastCol As Integer = table.Columns.Count - 1
-                    Dim range As New CellRangeAddress(0, 0, 0, lastCol)
-                    sh.SetAutoFilter(range)
-                End If
-                sh.CreateFreezePane(0, 1)
-
-                For ri = 0 To table.Rows.Count - 1
-                    Dim rr = sh.CreateRow(ri + 1)
-                    For ci = 0 To table.Columns.Count - 1
-                        Dim cc = rr.CreateCell(ci)
-                        Dim v = If(table.Rows(ri)(ci), "").ToString()
-                        cc.SetCellValue(v)
-                        cc.CellStyle = bodyStyle
-                    Next
-                    current += 1
-                    Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_WRITE", "엑셀 데이터 작성", current, totalRows)
-                Next
-
-                If doAutoFit Then
-                    AutoSizeAll(sh, table.Columns.Count)
-                End If
-            Next
 
             Global.KKY_Tool_Revit.UI.Hub.ExcelProgressReporter.Report(progressChannel, "EXCEL_SAVE", "파일 저장 중", totalRows, totalRows, Nothing, True)
             SaveWorkbookToFile(wb, filePath)

@@ -152,6 +152,7 @@ export function renderSegmentPms(root) {
     const allChecked = state.rvtList.length > 0 && state.rvtList.every(f => state.rvtChecked.has(f));
     const master = rvtTable.querySelector('thead input[type="checkbox"]');
     master.checked = allChecked;
+    master.disabled = state.rvtList.length === 0;
     master.onchange = () => {
       if (master.checked) state.rvtChecked = new Set(state.rvtList);
       else state.rvtChecked.clear();
@@ -159,6 +160,14 @@ export function renderSegmentPms(root) {
       updateButtons();
     };
     rvtBody.innerHTML = '';
+    if (!state.rvtList.length) {
+      const emptyRow = document.createElement('tr');
+      const emptyCell = document.createElement('td'); emptyCell.colSpan = 2; emptyCell.textContent = '등록된 RVT가 없습니다.';
+      emptyRow.append(emptyCell);
+      rvtBody.append(emptyRow);
+      updateButtons();
+      return;
+    }
     state.rvtList.forEach(p => {
       const tr = document.createElement('tr');
       const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = state.rvtChecked.has(p);
