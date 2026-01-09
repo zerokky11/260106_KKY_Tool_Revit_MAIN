@@ -9,6 +9,7 @@ import { renderExport } from './views/export.js';
 import { renderParamProp } from './views/paramprop.js';
 import { renderSegmentPms } from './views/segmentpms.js';
 import { renderGuid } from './views/guid.js';
+import { renderFamilyLink } from './views/familylink.js';
 
 initTheme();
 
@@ -95,6 +96,7 @@ function route() {
         case 'paramprop': return renderParamProp(targetRoot);
         case 'segmentpms': return renderSegmentPms(targetRoot);
         case 'guid': return renderGuid(targetRoot);
+        case 'familylink': return renderFamilyLink(targetRoot);
         default: return renderHome(targetRoot);
     }
 }

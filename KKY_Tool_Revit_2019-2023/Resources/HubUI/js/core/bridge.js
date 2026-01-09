@@ -179,6 +179,51 @@ export function post(ev, payload = {}) {
             _emitHost("paramprop:report", { report: "(DEV) 완료" }, { __seq: seq });
             break;
         }
+        case "familylink:init": {
+            _emitHost("familylink:sharedparams", {
+                sourcePath: "C:\\Sample\\SharedParameters.txt",
+                items: [
+                    { name: "PARAM_A", guid: "11111111-1111-1111-1111-111111111111", groupName: "GroupA", dataTypeToken: "Text" },
+                    { name: "PARAM_B", guid: "22222222-2222-2222-2222-222222222222", groupName: "GroupB", dataTypeToken: "Length" }
+                ]
+            }, { __seq: seq });
+            break;
+        }
+        case "familylink:pick-rvts": {
+            _emitHost("familylink:rvts-picked", { paths: ["C:\\Sample\\ProjectA.rvt", "C:\\Sample\\ProjectB.rvt"] }, { __seq: seq });
+            break;
+        }
+        case "familylink:run": {
+            _emitHost("familylink:progress", { percent: 25, message: "(DEV) 스캔 중..." }, { __seq: seq });
+            _emitHost("familylink:result", {
+                schema: ["ProjectPath", "HostFamilyName", "HostFamilyCategory", "NestedFamilyName", "NestedTypeName", "NestedCategory", "TargetParamName", "ExpectedGuid", "FoundScope", "NestedParamGuid", "NestedParamDataType", "AssocHostParamName", "HostParamGuid", "HostParamIsShared", "Issue", "Notes"],
+                rows: [
+                    {
+                        ProjectPath: "C:\\Sample\\ProjectA.rvt",
+                        HostFamilyName: "HostA",
+                        HostFamilyCategory: "Generic Model",
+                        NestedFamilyName: "NestedA",
+                        NestedTypeName: "Type01",
+                        NestedCategory: "Generic Model",
+                        TargetParamName: "PARAM_A",
+                        ExpectedGuid: "11111111-1111-1111-1111-111111111111",
+                        FoundScope: "InstanceParam",
+                        NestedParamGuid: "11111111-1111-1111-1111-111111111111",
+                        NestedParamDataType: "Text",
+                        AssocHostParamName: "PARAM_A",
+                        HostParamGuid: "11111111-1111-1111-1111-111111111111",
+                        HostParamIsShared: "True",
+                        Issue: "OK",
+                        Notes: ""
+                    }
+                ]
+            }, { __seq: seq });
+            break;
+        }
+        case "familylink:export": {
+            _emitHost("familylink:exported", { ok: true, path: "C:\\Temp\\FamilyLinkAudit.xlsx" }, { __seq: seq });
+            break;
+        }
         default: {
             console.debug("[DEV] post noop:", ev, payload);
             break;
