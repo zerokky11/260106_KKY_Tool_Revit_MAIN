@@ -30,15 +30,15 @@ Namespace Services
         End Class
 
         ' 3-인자: tolFt 는 피트 단위 (ft)
-        Public Shared Function Run(app As UIApplication, tolFt As Double, param As String) As List(Of Dictionary(Of String, Object))
-            Return Run(app, tolFt, param, CType(Nothing, IEnumerable(Of String)), Nothing, False)
+        Public Shared Function Run(app As UIApplication, tolFt As Double, param As String, Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
+            Return Run(app, tolFt, param, CType(Nothing, IEnumerable(Of String)), Nothing, False, progress)
         End Function
 
-        Public Shared Function Run(app As UIApplication, tolFt As Double, param As String, extraParams As IEnumerable(Of String)) As List(Of Dictionary(Of String, Object))
-            Return Run(app, tolFt, param, extraParams, Nothing, False)
+        Public Shared Function Run(app As UIApplication, tolFt As Double, param As String, extraParams As IEnumerable(Of String), Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
+            Return Run(app, tolFt, param, extraParams, Nothing, False, progress)
         End Function
 
-        Public Shared Function Run(app As UIApplication, tolFt As Double, param As String, extraParams As IEnumerable(Of String), targetFilter As String, excludeEndDummy As Boolean) As List(Of Dictionary(Of String, Object))
+        Public Shared Function Run(app As UIApplication, tolFt As Double, param As String, extraParams As IEnumerable(Of String), targetFilter As String, excludeEndDummy As Boolean, Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
             LastDebug = New List(Of String)()
             Dim rows As New List(Of Dictionary(Of String, Object))()
 
@@ -70,6 +70,14 @@ Namespace Services
             For Each el In elems
                 elemConns(el.Id.IntegerValue) = GetConnectors(el)
             Next
+
+            Dim totalConnectors As Integer = 0
+            For Each kv In elemConns
+                totalConnectors += If(kv.Value Is Nothing, 0, kv.Value.Count)
+            Next
+            totalConnectors = Math.Max(1, totalConnectors)
+            Dim processedConnectors As Integer = 0
+            Dim lastPct As Double = -1
 
             ' 모든 커넥터 좌표 버킷 구성 (1ft 셀)
             Dim allConnPoints As New List(Of Tuple(Of Integer, XYZ, Connector))()
@@ -177,6 +185,15 @@ Namespace Services
                         Dim row = BuildRow(el, found, distInch, connType, param, v1, v2, status, normalizedExtras, extras1, extras2)
                         rows.Add(row)
                     End If
+
+                    processedConnectors += 1
+                    If progress IsNot Nothing Then
+                        Dim pct As Double = Math.Round((CDbl(processedConnectors) / CDbl(totalConnectors)) * 1000.0R) / 10.0R
+                        If pct >= lastPct + 0.2R OrElse processedConnectors = totalConnectors Then
+                            lastPct = pct
+                            progress(pct, $"커넥터 진단 중... ({processedConnectors}/{totalConnectors})")
+                        End If
+                    End If
                 Next
             Next
 
@@ -197,15 +214,15 @@ Namespace Services
         End Function
 
         ' 4-인자: tol 은 unit 기준(mm/inch/ft) → 내부에서 ft 로 환산 후 3-인자 호출
-        Public Shared Function Run(app As UIApplication, tol As Double, unit As String, paramName As String) As List(Of Dictionary(Of String, Object))
-            Return Run(app, tol, unit, paramName, CType(Nothing, IEnumerable(Of String)), Nothing, False)
+        Public Shared Function Run(app As UIApplication, tol As Double, unit As String, paramName As String, Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
+            Return Run(app, tol, unit, paramName, CType(Nothing, IEnumerable(Of String)), Nothing, False, progress)
         End Function
 
-        Public Shared Function Run(app As UIApplication, tol As Double, unit As String, paramName As String, extraParams As IEnumerable(Of String)) As List(Of Dictionary(Of String, Object))
-            Return Run(app, tol, unit, paramName, extraParams, Nothing, False)
+        Public Shared Function Run(app As UIApplication, tol As Double, unit As String, paramName As String, extraParams As IEnumerable(Of String), Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
+            Return Run(app, tol, unit, paramName, extraParams, Nothing, False, progress)
         End Function
 
-        Public Shared Function Run(app As UIApplication, tol As Double, unit As String, paramName As String, extraParams As IEnumerable(Of String), targetFilter As String, excludeEndDummy As Boolean) As List(Of Dictionary(Of String, Object))
+        Public Shared Function Run(app As UIApplication, tol As Double, unit As String, paramName As String, extraParams As IEnumerable(Of String), targetFilter As String, excludeEndDummy As Boolean, Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
             Dim tolFt As Double
             If String.Equals(unit, "mm", StringComparison.OrdinalIgnoreCase) Then
                 tolFt = tol / 304.8
@@ -214,7 +231,7 @@ Namespace Services
             Else
                 tolFt = tol ' ft 가정
             End If
-            Return Run(app, tolFt, paramName, extraParams, targetFilter, excludeEndDummy)
+            Return Run(app, tolFt, paramName, extraParams, targetFilter, excludeEndDummy, progress)
         End Function
 
         ' --------- 내부 유틸 ---------
