@@ -124,10 +124,11 @@ Namespace Exports
 
         Private Function CsvEscape(s As String) As String
             If s Is Nothing Then s = ""
-            Dim needsQuotes As Boolean = s.Contains(","c) OrElse s.Contains(""""c) OrElse s.Contains(vbCr) OrElse s.Contains(vbLf)
-            s = s.Replace("""", """"")
+            Dim quote As String = """"
+            Dim needsQuotes As Boolean = s.Contains(","c) OrElse s.Contains(quote) OrElse s.Contains(vbCr) OrElse s.Contains(vbLf)
+            s = s.Replace(quote, quote & quote)
             If needsQuotes Then
-                Return """" & s & """"
+                Return quote & s & quote
             End If
             Return s
         End Function

@@ -191,17 +191,17 @@ Namespace UI.Hub
 
         Private Function ExtractStringList(payload As Object, key As String) As List(Of String)
             Dim res As New List(Of String)()
-            Dim raw As Object = GetProp(payload, key)
-            If raw Is Nothing Then Return res
+            Dim payloadValue As Object = GetProp(payload, key)
+            If payloadValue Is Nothing Then Return res
 
-            Dim arr = TryCast(raw, IEnumerable)
-            If arr Is Nothing OrElse TypeOf raw Is String Then
-                Dim single As String = TryCast(raw, String)
+            Dim payloadItems = TryCast(payloadValue, IEnumerable)
+            If payloadItems Is Nothing OrElse TypeOf payloadValue Is String Then
+                Dim single As String = TryCast(payloadValue, String)
                 If Not String.IsNullOrWhiteSpace(single) Then res.Add(single)
                 Return res
             End If
 
-            For Each o In arr
+            For Each o In payloadItems
                 If o Is Nothing Then Continue For
                 Dim s As String = o.ToString()
                 If Not String.IsNullOrWhiteSpace(s) Then res.Add(s)
@@ -212,11 +212,11 @@ Namespace UI.Hub
 
         Private Function ExtractTargets(payload As Object) As List(Of FamilyLinkTargetParam)
             Dim list As New List(Of FamilyLinkTargetParam)()
-            Dim raw As Object = GetProp(payload, "targets")
-            Dim arr = TryCast(raw, IEnumerable)
-            If arr Is Nothing OrElse TypeOf raw Is String Then Return list
+            Dim payloadValue As Object = GetProp(payload, "targets")
+            Dim payloadItems = TryCast(payloadValue, IEnumerable)
+            If payloadItems Is Nothing OrElse TypeOf payloadValue Is String Then Return list
 
-            For Each o In arr
+            For Each o In payloadItems
                 Dim name As String = TryCast(GetProp(o, "name"), String)
                 Dim guidStr As String = TryCast(GetProp(o, "guid"), String)
                 If String.IsNullOrWhiteSpace(name) OrElse String.IsNullOrWhiteSpace(guidStr) Then Continue For
