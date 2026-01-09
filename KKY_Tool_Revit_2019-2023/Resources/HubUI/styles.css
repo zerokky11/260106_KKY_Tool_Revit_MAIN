@@ -120,20 +120,23 @@ body.kky-debug-outline * {
 .topbar-progress-fill { position:absolute; left:0; top:0; bottom:0; width:0%; background: #8aa6d4; border-radius:6px; transition:width 0.25s ease; }
 
 /* Segment PMS */
-.segmentpms-table { width:100%; border-collapse: collapse; margin-top:8px; }
-.segmentpms-table th, .segmentpms-table td { border:1px solid #d9d9d9; padding:6px 8px; font-size:12px; }
-.segmentpms-table th { background:#f5f5f5; text-align:left; }
-.segmentpms-summary { margin:6px 0; color:#666; }
+.segmentpms-table { width:100%; border-collapse: collapse; margin-top:8px; background: var(--panel); }
+.segmentpms-table th, .segmentpms-table td { border:1px solid var(--border); padding:6px 8px; font-size:12px; color: var(--text); }
+.segmentpms-table th { background: var(--tableHeaderBg); color: var(--tableHeaderText); text-align:left; }
+.segmentpms-table tbody tr:nth-child(even) { background: var(--rowBg); }
+.segmentpms-table tbody tr:hover { background: var(--rowHoverBg); }
+.segmentpms-table .empty-row td { background: var(--rowBg); color: var(--emptyText); text-align: center; font-style: normal; }
+.segmentpms-summary { margin:6px 0; color:var(--muted); }
 .segmentpms-table td[data-status] { font-weight:bold; }
 .segmentpms-files-grid { display:grid; grid-template-columns: 1fr 0.9fr; gap:12px; }
-.segmentpms-reglist { border:1px solid #d9d9d9; border-radius:10px; padding:10px; }
+.segmentpms-reglist { border:1px solid var(--border); border-radius:10px; padding:10px; }
 .segmentpms-reglist ul { margin:8px 0 0; padding:0; list-style:none; }
 .segmentpms-reglist li { padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.05); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .segmentpms-actions-row { display:flex; gap:8px; flex-wrap:wrap; }
 .segmentpms-extract .card-btn, .segmentpms-check .card-btn { min-width:120px; }
 .segmentpms-table td small.segmentpms-suggest { display:block; margin-top:2px; color:#1f8a36; font-weight:600; }
 .segmentpms-extract table input[type="checkbox"] { width:16px; height:16px; }
-.segmentpms-rvtlist { max-height: 170px; overflow-y: auto; border:1px solid #d9d9d9; border-radius:8px; padding:4px; }
+.segmentpms-rvtlist { max-height: 170px; overflow-y: auto; border:1px solid var(--border); border-radius:8px; padding:4px; background: var(--panel); }
 .segmentpms-rvtlist table { margin-top:0; }
 .segmentpms-path-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body::before { content:""; position:fixed; inset:0; z-index:9995; pointer-events:none; opacity:0; transition:opacity 0.2s ease; }

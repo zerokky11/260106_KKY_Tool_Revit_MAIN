@@ -46,28 +46,36 @@
     width: 100%;
     border-collapse: collapse;
     font-size: 0.85rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
 }
 
 .kkyt-table th,
 .kkyt-table td {
-    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+    border-bottom: 1px solid var(--border);
     padding: 8px 6px;
     text-align: left;
+    color: var(--text);
 }
 
 .kkyt-table th {
-    color: var(--text-soft);
+    background: var(--tableHeaderBg);
+    color: var(--tableHeaderText);
     font-weight: 600;
     white-space: nowrap;
 }
 
 .kkyt-table thead th.group {
     text-align: center;
-    color: var(--text-main);
+    color: var(--tableHeaderText);
 }
 
 .kkyt-table tbody tr:nth-child(even) {
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--rowBg);
+}
+
+.kkyt-table tbody tr:hover {
+    background: var(--rowHoverBg);
 }
 
 .unit-toggle {
@@ -77,7 +85,7 @@
     padding: 6px 10px;
     border-radius: 12px;
     border: 1px dashed var(--border-soft);
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--rowBg);
     font-size: 0.82rem;
 }
 
@@ -86,15 +94,15 @@
     gap: 6px;
     align-items: center;
     cursor: pointer;
-    color: var(--text-muted);
+    color: var(--text);
 }
 
 .export-table-wrap {
     border-radius: 14px;
-    border: 1px solid var(--border-soft);
+    border: 1px solid var(--border);
     overflow: auto;
     max-height: 320px;
     min-height: 220px;
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--panel);
     padding: 6px 0;
 }

@@ -41,7 +41,9 @@ export function renderRvtRows(tbody, rows, emptyMessage = '등록된 RVT가 없�
   tbody.innerHTML = '';
   if (!rows.length) {
     const emptyRow = document.createElement('tr');
+    emptyRow.className = 'empty-row';
     const emptyCell = document.createElement('td');
+    emptyCell.className = 'empty-cell';
     emptyCell.colSpan = 4;
     emptyCell.textContent = emptyMessage;
     emptyRow.append(emptyCell);
