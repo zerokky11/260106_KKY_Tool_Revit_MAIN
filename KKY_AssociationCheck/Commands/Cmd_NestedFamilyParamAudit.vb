@@ -468,7 +468,6 @@ Namespace KKY_Tool_Revit
                 Return
             End Try
 
-            ' 정리/정렬
             _allSharedParams = list.
                 Where(Function(x) x IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(x.Name)).
                 OrderBy(Function(x) If(x.GroupName, ""), StringComparer.OrdinalIgnoreCase).
@@ -694,7 +693,6 @@ Namespace KKY_Tool_Revit
 
             Dim rows As New List(Of AuditRow)()
 
-            ' 이름 기준(동명이면 첫 번째만) - UI에서도 이름 중복을 막고 있음
             Dim expectedByName As New Dictionary(Of String, SharedParamItem)(StringComparer.OrdinalIgnoreCase)
             For Each sp As SharedParamItem In selectedParams
                 If sp Is Nothing OrElse String.IsNullOrWhiteSpace(sp.Name) Then Continue For
@@ -749,7 +747,6 @@ Namespace KKY_Tool_Revit
                 famDoc = hostDoc.EditFamily(hostFamily)
                 If famDoc Is Nothing OrElse Not famDoc.IsFamilyDocument Then Return
 
-                ' ✅ 복합 패밀리만: 네스티드 FamilyInstance가 있어야 함
                 Dim nestedInstances As List(Of FamilyInstance) =
                     New FilteredElementCollector(famDoc).
                         OfClass(GetType(FamilyInstance)).
@@ -760,7 +757,7 @@ Namespace KKY_Tool_Revit
 
                 If nestedInstances.Count = 0 Then Return
 
-                ' ✅ 같은 Symbol 반복검사 방지: Symbol 기준 1개 대표만 검사
+                ' ✅ 같은 Symbol 반복검사 방지
                 Dim repInstances As List(Of FamilyInstance) =
                     nestedInstances.
                         GroupBy(Function(fi) fi.Symbol.Id.IntegerValue).
@@ -809,11 +806,13 @@ Namespace KKY_Tool_Revit
                             Dim p As Parameter = fp.P
                             If p Is Nothing OrElse p.Definition Is Nothing Then Continue For
 
-                            Dim nestedGuidStr As String = ""
+                            ' ✅ 여기부터 핵심 변경: ExternalDefinition 캐스팅이 아니라 Parameter 자체에서 GUID/Shared 판별
                             Dim nestedGuid As Guid
-                            If TryGetDefinitionGuid(p.Definition, nestedGuid) Then
-                                nestedGuidStr = nestedGuid.ToString("D")
-                            End If
+                            Dim nestedGuidOk As Boolean = TryGetParameterGuid(p, nestedGuid)
+                            Dim nestedGuidStr As String = If(nestedGuidOk, nestedGuid.ToString("D"), "")
+
+                            Dim nestedIsShared As Boolean = False
+                            Dim nestedIsSharedKnown As Boolean = TryGetParameterIsShared(p, nestedIsShared)
 
                             Dim assoc As FamilyParameter = Nothing
                             Try
@@ -844,14 +843,23 @@ Namespace KKY_Tool_Revit
                                 issue = AuditIssueType.MissingAssociation
                                 notes = "호스트 패밀리 파라미터로 연동(Associate)되지 않음"
                             Else
-                                ' 1) 네스티드 GUID 체크 (Shared 파라미터면 GUID 존재)
-                                If nestedGuidStr <> "" Then
+                                ' 1) 네스티드 GUID 체크(Shared 파라미터면 GUID가 나와야 정상)
+                                If nestedGuidOk Then
                                     If nestedGuid <> expected.Guid Then
                                         issue = AuditIssueType.GuidMismatch
                                         notes = $"네스티드 파라미터 GUID 불일치 (Expected {expected.Guid:D}, Nested {nestedGuid:D})"
                                     End If
                                 Else
-                                    notes = "네스티드 파라미터가 Shared(ExternalDefinition)로 확인되지 않음(이름만 일치)"
+                                    ' ✅ 여기서 이제 “정말 Shared가 아닌지 / 확인이 안되는지”를 구분해서 메시지
+                                    If nestedIsSharedKnown Then
+                                        If nestedIsShared Then
+                                            notes = "네스티드 파라미터 IsShared=True 이지만 GUID 추출 실패(특이 케이스)"
+                                        Else
+                                            notes = "네스티드 파라미터 IsShared=False (Shared 아님, 이름만 일치)"
+                                        End If
+                                    Else
+                                        notes = "네스티드 파라미터 Shared 여부 확인 실패(이름만 일치)"
+                                    End If
                                 End If
 
                                 ' 2) 호스트 연결 파라미터가 Shared가 아니면 표시
@@ -862,10 +870,8 @@ Namespace KKY_Tool_Revit
                                 End If
 
                                 ' 3) 호스트 GUID도 비교 가능하면 비교
-                                Dim hostGuidStr As String = ""
                                 Dim hostGuid As Guid
                                 If TryGetDefinitionGuid(assoc.Definition, hostGuid) Then
-                                    hostGuidStr = hostGuid.ToString("D")
                                     If hostGuid <> expected.Guid Then
                                         If issue = AuditIssueType.OK Then issue = AuditIssueType.GuidMismatch
                                         If notes <> "" Then notes &= " / "
@@ -947,6 +953,7 @@ Namespace KKY_Tool_Revit
             Return map
         End Function
 
+        ' ✅ 기존 방식(Definition -> ExternalDefinition) 유지(호스트 FamilyParameter쪽에서 필요)
         Private Shared Function TryGetDefinitionGuid(defn As Definition, ByRef guid As Guid) As Boolean
             guid = Guid.Empty
             Try
@@ -958,6 +965,55 @@ Namespace KKY_Tool_Revit
             Catch
             End Try
             Return False
+        End Function
+
+        ' ✅ 핵심: Parameter 자체에서 Shared/GUID 추출 (Reflection로 안전하게)
+        Private Shared Function TryGetParameterIsShared(p As Parameter, ByRef isShared As Boolean) As Boolean
+            isShared = False
+            If p Is Nothing Then Return False
+            Try
+                Dim t As Type = p.GetType()
+                Dim prop As Reflection.PropertyInfo = t.GetProperty("IsShared")
+                If prop Is Nothing Then Return False
+                Dim v As Object = prop.GetValue(p, Nothing)
+                If TypeOf v Is Boolean Then
+                    isShared = CBool(v)
+                    Return True
+                End If
+            Catch
+            End Try
+            Return False
+        End Function
+
+        Private Shared Function TryGetParameterGuid(p As Parameter, ByRef guid As Guid) As Boolean
+            guid = Guid.Empty
+            If p Is Nothing Then Return False
+
+            ' 1) Parameter.IsShared/Parameter.GUID 우선
+            Try
+                Dim isShared As Boolean = False
+                Dim isSharedKnown As Boolean = TryGetParameterIsShared(p, isShared)
+                If isSharedKnown AndAlso isShared Then
+                    Dim t As Type = p.GetType()
+
+                    Dim propGuid As Reflection.PropertyInfo = t.GetProperty("GUID")
+                    If propGuid Is Nothing Then
+                        propGuid = t.GetProperty("Guid") ' 혹시 몰라서 폴백
+                    End If
+
+                    If propGuid IsNot Nothing Then
+                        Dim v As Object = propGuid.GetValue(p, Nothing)
+                        If TypeOf v Is Guid Then
+                            guid = CType(v, Guid)
+                            If guid <> Guid.Empty Then Return True
+                        End If
+                    End If
+                End If
+            Catch
+            End Try
+
+            ' 2) 폴백: Definition -> ExternalDefinition
+            Return TryGetDefinitionGuid(p.Definition, guid)
         End Function
 
         Private Shared Function SafeDefTypeToken(defn As Definition) As String
