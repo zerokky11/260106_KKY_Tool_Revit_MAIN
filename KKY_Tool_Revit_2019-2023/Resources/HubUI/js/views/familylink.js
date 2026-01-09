@@ -31,10 +31,10 @@ export function renderFamilyLink(root) {
   if (topbarEl) topbarEl.classList.add('hub-topbar');
 
   const state = {
-    sharedParams: [],
-    selectedGuids: new Set(),
-    availableChecked: new Set(),
-    selectedChecked: new Set(),
+    items: [],
+    groups: [],
+    selectedGroups: new Set(['(All Groups)']),
+    selectedParams: new Set(),
     search: '',
     schema: DEFAULT_SCHEMA.slice(),
     rows: [],
@@ -44,6 +44,7 @@ export function renderFamilyLink(root) {
   };
 
   const page = div('familylink-page feature-shell');
+
   const header = div('feature-header');
   const heading = div('feature-heading');
   heading.innerHTML = `
@@ -51,8 +52,8 @@ export function renderFamilyLink(root) {
     <h2 class="feature-title">패밀리 연동 검토(복합/네스티드)</h2>
     <p class="feature-sub">Shared GUID 기준으로 네스티드 패밀리 파라미터 연동 상태를 점검합니다.</p>`;
 
-  const runBtn = cardBtn('스캔 실행', onRun);
-  const exportBtn = cardBtn('엑셀 저장…', onExport);
+  const runBtn = cardBtn('검토 시작', onRun);
+  const exportBtn = cardBtn('엑셀 내보내기', onExport);
   exportBtn.disabled = true;
 
   const actions = div('feature-actions');
@@ -60,82 +61,82 @@ export function renderFamilyLink(root) {
   header.append(heading, actions);
   page.append(header);
 
-  const layout = div('familylink-layout');
-  const side = div('familylink-side');
-  const main = div('familylink-main');
-  layout.append(side, main);
-  page.append(layout);
-  target.append(page);
+  const body = div('familylink-body');
+  const topPanels = div('familylink-top-panels');
+  const resultsPanel = div('familylink-results-panel');
 
-  // Shared Param card
-  const paramCard = div('familylink-card');
-  paramCard.innerHTML = '<div class="familylink-card-title">Shared Parameter 선택</div>';
+  // ----- Shared Parameter 선택 (ParamProp 스타일 재사용) -----
+  const paramCard = div('paramprop-card section familylink-card');
+  const paramTitle = div('paramprop-title');
+  paramTitle.textContent = '공유 파라미터 선택';
+  paramCard.append(paramTitle);
+
   const sourceLine = div('familylink-source');
   sourceLine.textContent = 'Shared Parameters: -';
   paramCard.append(sourceLine);
 
-  const searchRow = div('familylink-row');
-  const searchInput = document.createElement('input');
-  searchInput.type = 'search';
-  searchInput.placeholder = '이름 또는 그룹 검색';
-  searchInput.className = 'familylink-search';
-  searchInput.addEventListener('input', debounce((e) => {
+  const searchRow = div('paramprop-row paramprop-search-row');
+  const searchBox = document.createElement('input');
+  searchBox.type = 'search';
+  searchBox.placeholder = '이름 또는 그룹 검색';
+  searchBox.className = 'paramprop-search';
+  searchBox.addEventListener('input', debounce((e) => {
     state.search = (e.target.value || '').trim();
-    renderAvailableList();
+    renderParamTable();
   }, 120));
-  searchRow.append(labelSpan('검색'), searchInput);
+  searchRow.append(labelSpan('검색'), searchBox);
   paramCard.append(searchRow);
 
-  const listGrid = div('familylink-list-grid');
-  const availBox = buildListBox('공유 파라미터 목록', '그룹', 'familylink-list-box');
-  const selectedBox = buildListBox('선택된 파라미터', 'GUID', 'familylink-list-box');
-  listGrid.append(availBox.wrap, selectedBox.wrap);
-  paramCard.append(listGrid);
+  const selectGrid = div('paramprop-grid');
+  paramCard.append(selectGrid);
 
-  const actionRow = div('familylink-actions');
-  const btnAdd = smallBtn('추가', () => {
-    if (!state.availableChecked.size) {
-      toast('추가할 파라미터를 선택하세요.', 'warn');
-      return;
-    }
-    state.availableChecked.forEach(g => state.selectedGuids.add(g));
-    state.availableChecked.clear();
-    renderAvailableList();
-    renderSelectedList();
-    syncRunState();
-  });
-  const btnRemove = smallBtn('제거', () => {
-    if (!state.selectedChecked.size) {
-      toast('제거할 파라미터를 선택하세요.', 'warn');
-      return;
-    }
-    state.selectedChecked.forEach(g => state.selectedGuids.delete(g));
-    state.selectedChecked.clear();
-    renderSelectedList();
-    syncRunState();
-  });
-  const btnClear = smallBtn('비우기', () => {
-    state.selectedGuids.clear();
-    state.selectedChecked.clear();
-    renderSelectedList();
-    syncRunState();
-  });
-  actionRow.append(btnAdd, btnRemove, btnClear);
-  paramCard.append(actionRow);
+  const groupBox = div('paramprop-table-box paramprop-group-box');
+  const groupHeader = div('paramprop-subtitle');
+  groupHeader.textContent = '그룹 (다중 선택)';
+  const groupTable = document.createElement('table');
+  groupTable.className = 'paramprop-table paramprop-group-table';
+  const groupThead = document.createElement('thead');
+  groupThead.innerHTML = '<tr><th>선택</th><th>Group</th></tr>';
+  const groupTbody = document.createElement('tbody');
+  groupTable.append(groupThead, groupTbody);
+  const groupListWrap = div('paramprop-table-wrap paramprop-group-wrap');
+  groupListWrap.append(groupTable);
+  groupBox.append(groupHeader, groupListWrap);
+  selectGrid.append(groupBox);
 
-  // RVT card
-  const rvtCard = div('familylink-card');
-  rvtCard.innerHTML = '<div class="familylink-card-title">RVT 목록</div>';
-  const rvtActions = div('familylink-actions');
-  const btnAddRvt = smallBtn('RVT 추가…', () => post('familylink:pick-rvts', {}));
-  const btnRemoveRvt = smallBtn('선택 제거', () => {
+  const tableBox = div('paramprop-table-box');
+  const tableHead = div('paramprop-subtitle');
+  const selectedCount = document.createElement('span');
+  selectedCount.className = 'familylink-selected-count';
+  tableHead.textContent = '파라미터';
+  tableHead.append(selectedCount);
+  const table = document.createElement('table');
+  table.className = 'paramprop-table';
+  const thead = document.createElement('thead');
+  thead.innerHTML = '<tr><th>선택</th><th>Name</th></tr>';
+  const tbody = document.createElement('tbody');
+  table.append(thead, tbody);
+  const tableWrap = div('paramprop-table-wrap');
+  tableWrap.append(table);
+  tableBox.append(tableHead, tableWrap);
+  selectGrid.append(tableBox);
+
+  // ----- RVT 목록 -----
+  const rvtCard = div('paramprop-card section familylink-card');
+  const rvtTitle = div('paramprop-title');
+  rvtTitle.textContent = '대상 RVT 목록';
+  rvtCard.append(rvtTitle);
+
+  const rvtActions = div('familylink-rvt-actions');
+  const btnAddRvt = cardBtn('RVT 파일 추가', () => post('familylink:pick-rvts', {}));
+  const btnRemoveRvt = cardBtn('선택 제거', () => {
     if (!state.rvtChecked.size) return;
     state.rvtPaths = state.rvtPaths.filter(p => !state.rvtChecked.has(p));
     state.rvtChecked.clear();
     renderRvtList();
     syncRunState();
   });
-  const btnClearRvt = smallBtn('비우기', () => {
+  const btnClearRvt = cardBtn('등록 목록 비우기', () => {
     state.rvtPaths = [];
     state.rvtChecked.clear();
     renderRvtList();
@@ -149,16 +150,14 @@ export function renderFamilyLink(root) {
   rvtTableWrap.append(rvtTable);
   rvtCard.append(rvtTableWrap);
 
-  side.append(paramCard, rvtCard);
-
-  // Results panel
-  const resultPanel = div('familylink-results');
+  // ----- 결과 영역 -----
   const resultHead = div('familylink-results-head');
   const resultTitle = div('familylink-results-title');
-  resultTitle.textContent = '결과';
+  resultTitle.textContent = '검토 결과';
   const resultMeta = div('familylink-results-meta');
   resultMeta.textContent = '0 rows';
   resultHead.append(resultTitle, resultMeta);
+
   const resultBody = div('familylink-results-body');
   const resultTable = document.createElement('table');
   resultTable.className = 'familylink-table';
@@ -166,16 +165,20 @@ export function renderFamilyLink(root) {
   const resultTbody = document.createElement('tbody');
   resultTable.append(resultThead, resultTbody);
   resultBody.append(resultTable);
-  resultPanel.append(resultHead, resultBody);
-  main.append(resultPanel);
 
-  renderAvailableList();
-  renderSelectedList();
+  resultsPanel.append(resultHead, resultBody);
+
+  topPanels.append(paramCard, rvtCard);
+  body.append(topPanels, resultsPanel);
+  page.append(body);
+  target.append(page);
+
+  renderGroups();
+  renderParamTable();
   renderRvtList();
   renderResultTable();
   syncRunState();
 
-  // Host events
   onHost('familylink:sharedparams', handleSharedParams);
   onHost('familylink:rvts-picked', handleRvtsPicked);
   onHost('familylink:progress', handleProgress);
@@ -185,15 +188,18 @@ export function renderFamilyLink(root) {
 
   post('familylink:init', {});
 
-  // handlers
   function handleSharedParams(payload) {
-    state.sharedParams = Array.isArray(payload?.items) ? payload.items : [];
+    state.items = Array.isArray(payload?.items) ? payload.items : [];
+    state.groups = deriveGroups(state.items);
+    state.selectedGroups = new Set(['(All Groups)']);
+    state.selectedParams = new Set();
+    state.search = '';
+    searchBox.value = '';
+
     sourceLine.textContent = payload?.sourcePath ? `Shared Parameters: ${payload.sourcePath}` : 'Shared Parameters: -';
-    state.availableChecked.clear();
-    state.selectedGuids.clear();
-    state.selectedChecked.clear();
-    renderAvailableList();
-    renderSelectedList();
+
+    renderGroups();
+    renderParamTable();
     syncRunState();
   }
 
@@ -243,9 +249,9 @@ export function renderFamilyLink(root) {
     const ok = payload?.ok !== false && payload?.path;
     exportBtn.disabled = state.rows.length === 0 || state.busy;
     if (ok) {
-      showExcelSavedDialog('엑셀/CSV 저장이 완료되었습니다.', payload.path, (p) => post('excel:open', { path: p }));
+      showExcelSavedDialog('엑셀 내보내기가 완료되었습니다.', payload.path, (p) => post('excel:open', { path: p }));
     } else {
-      toast(payload?.message || '엑셀/CSV 저장 실패', 'err');
+      toast(payload?.message || '엑셀 내보내기 실패', 'err');
     }
   }
 
@@ -255,7 +261,12 @@ export function renderFamilyLink(root) {
       toast('검토할 RVT 파일을 추가하세요.', 'warn');
       return;
     }
-    const targets = state.sharedParams.filter(p => state.selectedGuids.has(p.guid));
+
+    const targets = Array.from(state.selectedParams)
+      .map(guid => state.items.find(item => item.guid === guid))
+      .filter(Boolean)
+      .map(item => ({ name: item.name, guid: item.guid }));
+
     if (!targets.length) {
       toast('검토할 파라미터를 선택하세요.', 'warn');
       return;
@@ -266,11 +277,10 @@ export function renderFamilyLink(root) {
     ProgressDialog.show('패밀리 연동 검토', '준비 중...');
     ProgressDialog.update(0, '준비 중...', '');
 
-    const payload = {
+    post('familylink:run', {
       rvtPaths: state.rvtPaths.slice(),
-      targets: targets.map(t => ({ name: t.name, guid: t.guid }))
-    };
-    post('familylink:run', payload);
+      targets
+    });
   }
 
   function onExport() {
@@ -282,80 +292,123 @@ export function renderFamilyLink(root) {
   function setBusy(on) {
     state.busy = on;
     runBtn.disabled = on;
-    runBtn.textContent = on ? '스캔 중…' : '스캔 실행';
+    runBtn.textContent = on ? '검토 중…' : '검토 시작';
     syncRunState();
   }
 
   function syncRunState() {
-    const hasTargets = state.selectedGuids.size > 0;
+    const hasTargets = state.selectedParams.size > 0;
     const hasRvts = state.rvtPaths.length > 0;
     runBtn.disabled = state.busy || !(hasTargets && hasRvts);
     exportBtn.disabled = state.busy || state.rows.length === 0;
     btnRemoveRvt.disabled = state.rvtChecked.size === 0;
   }
 
-  function renderAvailableList() {
-    const filter = state.search.toLowerCase();
-    const items = state.sharedParams.filter(p => {
-      if (!filter) return true;
-      const key = `${p.name || ''} ${p.groupName || ''}`.toLowerCase();
-      return key.includes(filter);
-    });
-    availBox.tbody.innerHTML = '';
+  function renderGroups() {
+    groupTbody.innerHTML = '';
+    const allItem = makeGroupItem('(All Groups)');
+    groupTbody.append(allItem);
+    state.groups.forEach(g => groupTbody.append(makeGroupItem(g)));
+  }
 
-    if (!items.length) {
-      availBox.tbody.append(emptyRow(3, '조건에 맞는 파라미터가 없습니다.'));
+  function makeGroupItem(name) {
+    const tr = document.createElement('tr');
+    tr.className = state.selectedGroups.has(name) ? 'is-selected' : '';
+    tr.dataset.group = name;
+    const chk = document.createElement('input');
+    chk.type = 'checkbox';
+    chk.checked = state.selectedGroups.has(name);
+    chk.addEventListener('change', (e) => { e.stopPropagation(); toggleGroup(name, chk.checked); });
+    const tdChk = document.createElement('td');
+    tdChk.append(chk);
+    const nameCell = td(name);
+    nameCell.title = name;
+    tr.append(tdChk, nameCell);
+    tr.addEventListener('click', () => toggleGroup(name, !state.selectedGroups.has(name)));
+    return tr;
+  }
+
+  function toggleGroup(name, on) {
+    if (name === '(All Groups)') {
+      state.selectedGroups = on ? new Set(['(All Groups)']) : new Set();
+    } else {
+      const sg = new Set(state.selectedGroups);
+      sg.delete('(All Groups)');
+      if (on) sg.add(name); else sg.delete(name);
+      if (sg.size === 0) sg.add('(All Groups)');
+      state.selectedGroups = sg;
+    }
+    renderGroups();
+    renderParamTable();
+  }
+
+  function renderParamTable() {
+    tbody.innerHTML = '';
+    updateSelectedCount();
+
+    const filtered = filterDefs();
+    if (!filtered.length) {
+      const tr = document.createElement('tr');
+      const tdEmpty = document.createElement('td');
+      tdEmpty.colSpan = 2;
+      tdEmpty.textContent = state.items.length ? '조건에 맞는 항목이 없습니다.' : '공유 파라미터 파일을 불러오세요.';
+      tdEmpty.className = 'paramprop-empty';
+      tr.append(tdEmpty);
+      tbody.append(tr);
       return;
     }
 
-    items.forEach(p => {
+    filtered.forEach(def => {
+      const key = def.guid;
       const tr = document.createElement('tr');
-      const ck = document.createElement('input');
-      ck.type = 'checkbox';
-      ck.checked = state.availableChecked.has(p.guid);
-      ck.onchange = () => {
-        if (ck.checked) state.availableChecked.add(p.guid);
-        else state.availableChecked.delete(p.guid);
-      };
-      const tdCheck = document.createElement('td');
-      tdCheck.append(ck);
-      const tdName = document.createElement('td');
-      tdName.textContent = p.name || '-';
-      const tdGroup = document.createElement('td');
-      tdGroup.textContent = p.groupName || '-';
-      tr.append(tdCheck, tdName, tdGroup);
-      availBox.tbody.append(tr);
+      tr.dataset.key = key;
+      tr.dataset.group = def.groupName || '';
+      tr.className = state.selectedParams.has(key) ? 'is-selected' : '';
+      const tdChk = document.createElement('td');
+      const chk = document.createElement('input');
+      chk.type = 'checkbox';
+      chk.checked = state.selectedParams.has(key);
+      chk.addEventListener('change', (e) => {
+        e.stopPropagation();
+        if (chk.checked) state.selectedParams.add(key); else state.selectedParams.delete(key);
+        renderParamTable();
+        syncRunState();
+      });
+      tdChk.append(chk);
+      const nameCell = td(def.name);
+      nameCell.title = `${def.groupName || ''} • ${def.dataTypeToken || ''}`.trim();
+      tr.append(tdChk, nameCell);
+      tr.addEventListener('click', () => {
+        if (state.selectedParams.has(key)) state.selectedParams.delete(key); else state.selectedParams.add(key);
+        renderParamTable();
+        syncRunState();
+      });
+      tbody.append(tr);
     });
   }
 
-  function renderSelectedList() {
-    const selected = state.sharedParams.filter(p => state.selectedGuids.has(p.guid));
-    selectedBox.tbody.innerHTML = '';
+  function updateSelectedCount() {
+    const count = state.selectedParams.size;
+    selectedCount.textContent = count ? ` (선택 ${count}개)` : '';
+  }
 
-    if (!selected.length) {
-      selectedBox.tbody.append(emptyRow(3, '선택된 파라미터가 없습니다.'));
-      return;
-    }
-
-    selected.forEach(p => {
-      const tr = document.createElement('tr');
-      const ck = document.createElement('input');
-      ck.type = 'checkbox';
-      ck.checked = state.selectedChecked.has(p.guid);
-      ck.onchange = () => {
-        if (ck.checked) state.selectedChecked.add(p.guid);
-        else state.selectedChecked.delete(p.guid);
-      };
-      const tdCheck = document.createElement('td');
-      tdCheck.append(ck);
-      const tdName = document.createElement('td');
-      tdName.textContent = p.name || '-';
-      const tdGuid = document.createElement('td');
-      tdGuid.textContent = shortGuid(p.guid);
-      tdGuid.title = p.guid || '';
-      tr.append(tdCheck, tdName, tdGuid);
-      selectedBox.tbody.append(tr);
+  function filterDefs() {
+    const groups = state.selectedGroups;
+    const search = state.search.toLowerCase();
+    return state.items.filter(d => {
+      const inGroup = groups.has('(All Groups)') || groups.has(d.groupName);
+      if (!inGroup) return false;
+      if (!search) return true;
+      return (d.name || '').toLowerCase().includes(search) || (d.groupName || '').toLowerCase().includes(search);
     });
+  }
+
+  function deriveGroups(items) {
+    const set = new Set();
+    (Array.isArray(items) ? items : []).forEach(d => {
+      if (d?.groupName) set.add(d.groupName);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ko'));
   }
 
   function renderRvtList() {
@@ -399,7 +452,7 @@ export function renderFamilyLink(root) {
       const td = document.createElement('td');
       td.colSpan = state.schema.length;
       td.className = 'familylink-empty';
-      td.textContent = '결과가 없습니다. 스캔을 실행하세요.';
+      td.textContent = '결과가 없습니다. 검토를 실행하세요.';
       tr.append(td);
       resultTbody.append(tr);
     } else {
@@ -417,35 +470,6 @@ export function renderFamilyLink(root) {
 
     resultMeta.textContent = `${state.rows.length} rows`;
   }
-
-  function buildListBox(title, col3Label, extraClass = '') {
-    const wrap = div(`familylink-list ${extraClass}`);
-    const head = div('familylink-list-title');
-    head.textContent = title;
-    const table = document.createElement('table');
-    table.className = 'familylink-table compact';
-    const thead = document.createElement('thead');
-    thead.innerHTML = `<tr><th></th><th>이름</th><th>${col3Label}</th></tr>`;
-    const tbody = document.createElement('tbody');
-    table.append(thead, tbody);
-    wrap.append(head, table);
-    return { wrap, tbody };
-  }
-
-  function emptyRow(colspan, message) {
-    const tr = document.createElement('tr');
-    const td = document.createElement('td');
-    td.colSpan = colspan;
-    td.className = 'familylink-empty';
-    td.textContent = message;
-    tr.append(td);
-    return tr;
-  }
-
-  function shortGuid(guid) {
-    if (!guid) return '-';
-    return String(guid).slice(0, 8);
-  }
 }
 
 function cardBtn(text, onClick) {
@@ -457,18 +481,15 @@ function cardBtn(text, onClick) {
   return btn;
 }
 
-function smallBtn(text, onClick) {
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'btn btn-ghost familylink-btn';
-  btn.textContent = text;
-  btn.onclick = onClick;
-  return btn;
-}
-
 function labelSpan(text) {
   const span = document.createElement('span');
-  span.className = 'familylink-label';
+  span.className = 'paramprop-label';
   span.textContent = text;
   return span;
+}
+
+function td(value) {
+  const cell = document.createElement('td');
+  cell.textContent = value ?? '';
+  return cell;
 }
