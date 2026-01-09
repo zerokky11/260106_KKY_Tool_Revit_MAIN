@@ -155,6 +155,11 @@ Namespace UI.Hub
             map.Add("guid:run", "HandleGuidRun")
             map.Add("guid:export", "HandleGuidExport")
             map.Add("guid:request-family-detail", "HandleGuidRequestFamilyDetail")
+            ' Family Link Audit
+            map.Add("familylink:init", "HandleFamilyLinkInit")
+            map.Add("familylink:pick-rvts", "HandleFamilyLinkPickRvts")
+            map.Add("familylink:run", "HandleFamilyLinkRun")
+            map.Add("familylink:export", "HandleFamilyLinkExport")
 
             Dim methodName As String = Nothing
             If Not map.TryGetValue(name, methodName) Then

@@ -116,6 +116,7 @@
 		<Compile Include="Exports\PointsExport.vb" />
 		<Compile Include="Exports\ConnectorExport.vb" />
 		<Compile Include="Exports\DuplicateExport.vb" />
+		<Compile Include="Exports\FamilyLinkAuditExport.vb" />
 		<Compile Include="Infrastructure\ElementIdCompat.vb" />
 		<Compile Include="Infrastructure\ResourceExtractor.vb" />
 		<Compile Include="Infrastructure\ExcelCore.vb" />
@@ -125,6 +126,7 @@
 		<Compile Include="Services\ParamPropagateService.vb" />
 		<Compile Include="Services\GuidAuditService.vb" />
 		<Compile Include="Services\SegmentPmsCheckService.vb" />
+		<Compile Include="Services\FamilyLinkAuditService.vb" />
 		<Compile Include="UI\Hub\ExcelProgressReporter.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.Export.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.Connector.vb" />
@@ -132,6 +134,7 @@
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.Guid.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.SegmentPms.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.ParamProp.vb" />
+		<Compile Include="UI\Hub\UiBridgeExternalEvent.FamilyLinkAudit.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.Core.vb" />
 		<Compile Include="UI\Hub\HubHostWindow.vb" />
 	</ItemGroup>
