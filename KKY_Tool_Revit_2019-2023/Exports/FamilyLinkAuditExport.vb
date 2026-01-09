@@ -34,6 +34,7 @@ Namespace Exports
 
         Public Function Export(rows As IEnumerable(Of FamilyLinkAuditRow)) As String
             If rows Is Nothing Then Return String.Empty
+
             Dim table As DataTable = BuildTable(rows)
             If Not ValidateSchema(table) Then
                 Throw New InvalidOperationException("스키마 검증 실패: 컬럼 순서/헤더가 규격과 다릅니다.")
@@ -50,19 +51,21 @@ Namespace Exports
 
                 If dlg.ShowDialog() <> DialogResult.OK Then Return String.Empty
 
-                Dim path As String = dlg.FileName
-                Dim ext As String = Path.GetExtension(path).ToLowerInvariant()
+                Dim filePath As String = dlg.FileName
+                Dim ext As String = System.IO.Path.GetExtension(filePath).ToLowerInvariant()
+
                 If String.IsNullOrWhiteSpace(ext) Then
                     ext = If(dlg.FilterIndex = 2, ".csv", ".xlsx")
-                    path = path & ext
+                    filePath = filePath & ext
                 End If
 
                 If ext = ".csv" Then
-                    SaveCsv(path, table)
+                    SaveCsv(filePath, table)
                 Else
-                    ExcelCore.SaveXlsx(path, "FamilyLinkAudit", table, False)
+                    ExcelCore.SaveXlsx(filePath, "FamilyLinkAudit", table, False)
                 End If
-                Return path
+
+                Return filePath
             End Using
         End Function
 

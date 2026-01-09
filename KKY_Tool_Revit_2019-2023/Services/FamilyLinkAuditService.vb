@@ -476,11 +476,12 @@ Namespace Services
         Private Shared Function SafeFileName(path As String) As String
             If String.IsNullOrWhiteSpace(path) Then Return "(Unknown)"
             Try
-                Return Path.GetFileName(path)
+                Return System.IO.Path.GetFileName(path)
             Catch
                 Return path
             End Try
         End Function
+
 
         Private Shared Sub ReportProgress(progress As Action(Of Integer, String), total As Integer, index As Integer, fileProgress As Double, message As String)
             If progress Is Nothing Then Return

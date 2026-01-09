@@ -191,24 +191,33 @@ Namespace UI.Hub
 
         Private Function ExtractStringList(payload As Object, key As String) As List(Of String)
             Dim res As New List(Of String)()
+
             Dim payloadValue As Object = GetProp(payload, key)
             If payloadValue Is Nothing Then Return res
 
-            Dim payloadItems = TryCast(payloadValue, IEnumerable)
+            ' IEnumerable 모호성/제네릭 꼬임 방지: 비제네릭 IEnumerable로 고정
+            Dim payloadItems As System.Collections.IEnumerable = TryCast(payloadValue, System.Collections.IEnumerable)
+
+            ' 문자열이면 IEnumerable로 취급되므로(문자열은 IEnumerable) 예외 처리
             If payloadItems Is Nothing OrElse TypeOf payloadValue Is String Then
-                Dim single As String = TryCast(payloadValue, String)
-                If Not String.IsNullOrWhiteSpace(single) Then res.Add(single)
+                Dim singleValue As String = TryCast(payloadValue, String) ' ✅ single(예약어) 사용 금지
+                If Not String.IsNullOrWhiteSpace(singleValue) Then
+                    res.Add(singleValue) ' ✅ Add(Of String) 같은 제네릭 금지
+                End If
                 Return res
             End If
 
-            For Each o In payloadItems
+            For Each o As Object In payloadItems
                 If o Is Nothing Then Continue For
                 Dim s As String = o.ToString()
-                If Not String.IsNullOrWhiteSpace(s) Then res.Add(s)
+                If Not String.IsNullOrWhiteSpace(s) Then
+                    res.Add(s)
+                End If
             Next
 
             Return res
         End Function
+
 
         Private Function ExtractTargets(payload As Object) As List(Of FamilyLinkTargetParam)
             Dim list As New List(Of FamilyLinkTargetParam)()
