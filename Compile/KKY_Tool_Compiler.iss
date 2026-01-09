@@ -3,7 +3,7 @@
 ; Non-commercial use only
 
 #define MyAppName "KKY_Tool_Revit"
-#define MyAppVersion "0.94"
+#define MyAppVersion "0.95"
 #define MyAppPublisher "Kyeongyeon Kim"
 #define MyAppURL "kkykiki89@nate.com"
 
