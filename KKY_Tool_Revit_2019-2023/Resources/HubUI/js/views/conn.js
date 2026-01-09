@@ -398,7 +398,7 @@ export function renderConn(root) {
         applyIncomingRows(payload || {});
         break;
       case 'connector:progress':
-        handleExcelProgress(payload || {});
+        handleConnectorProgress(payload);
         break;
       case 'connector:saved': {
         lastExcelPct = 0;
@@ -439,6 +439,25 @@ export function renderConn(root) {
   });
 
   /* helpers */
+  function handleConnectorProgress(payload) {
+    if (payload && (Object.prototype.hasOwnProperty.call(payload, 'pct') || Object.prototype.hasOwnProperty.call(payload, 'text'))) {
+      handleRunProgress(payload || {});
+      return;
+    }
+    handleExcelProgress(payload || {});
+  }
+
+  function handleRunProgress(payload) {
+    const percent = typeof payload?.pct === 'number' ? payload.pct : 0;
+    const message = payload?.text || '';
+    if (percent <= 0 && !message) {
+      ProgressDialog.hide();
+      return;
+    }
+    ProgressDialog.show('커넥터 진단', message || '진행 중…');
+    ProgressDialog.update(percent, message || '', '');
+  }
+
   function handleExcelProgress(payload) {
     if (!payload) {
       ProgressDialog.hide();

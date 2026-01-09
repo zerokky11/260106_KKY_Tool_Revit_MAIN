@@ -39,7 +39,6 @@ Namespace KKY_Tool_Revit
         Implements IWin32Window
 
         Private ReadOnly _handle As IntPtr
-
         Public Sub New(handle As IntPtr)
             _handle = handle
         End Sub
@@ -54,16 +53,43 @@ Namespace KKY_Tool_Revit
     Friend Enum AuditIssueType
         OK
         MissingAssociation
-        SuspiciousAssociation
-        SharedTypeDrivenConflict
+        GuidMismatch
+        HostParamNotShared
+        ParamNotFound
         [Error]
     End Enum
 
-    Friend Enum ParamScope
+    Friend Enum FoundScope
         InstanceParam
         TypeParam
-        TypeSelection
     End Enum
+
+    Friend Class SharedParamItem
+        Public Property Name As String = ""
+        Public Property Guid As Guid
+        Public Property GroupName As String = ""
+        Public Property DataTypeToken As String = ""
+
+        Public Overrides Function ToString() As String
+            Dim g8 As String = ""
+            Try
+                g8 = Guid.ToString("D")
+                If g8.Length >= 8 Then g8 = g8.Substring(0, 8)
+            Catch
+                g8 = ""
+            End Try
+
+            If String.IsNullOrWhiteSpace(GroupName) Then
+                Return $"{Name}  [{g8}]"
+            End If
+            Return $"{Name}  ({GroupName})  [{g8}]"
+        End Function
+    End Class
+
+    Friend Class FoundParam
+        Public Property P As Parameter
+        Public Property Scope As FoundScope
+    End Class
 
     Friend Class AuditRow
         Public Property ProjectPath As String = ""
@@ -74,17 +100,17 @@ Namespace KKY_Tool_Revit
         Public Property NestedFamilyName As String = ""
         Public Property NestedTypeName As String = ""
         Public Property NestedCategory As String = ""
-        Public Property NestedIsShared As Boolean
 
-        Public Property NestedParamScope As String = ""
-        Public Property NestedParamName As String = ""
-        Public Property NestedParamType As String = ""
+        Public Property TargetParamName As String = ""
+        Public Property ExpectedGuid As String = ""
+
+        Public Property FoundScope As String = ""
+        Public Property NestedParamGuid As String = ""
+        Public Property NestedParamDataType As String = ""
 
         Public Property AssocHostParamName As String = ""
-        Public Property AssocHostParamIsInstance As String = ""
-        Public Property AssocHostParamIsShared As String = ""
-        Public Property AssocHostParamIsReporting As String = ""
-        Public Property AssocHostParamFormula As String = ""
+        Public Property HostParamGuid As String = ""
+        Public Property HostParamIsShared As String = ""
 
         Public Property Issue As String = ""
         Public Property Notes As String = ""
@@ -95,34 +121,50 @@ Namespace KKY_Tool_Revit
 
         Private ReadOnly _uiapp As UIApplication
 
+        ' --- Shared Param source: Revit configured SharedParameters file ---
+        Private ReadOnly btnReloadShared As New Button()
+        Private ReadOnly lblSharedSource As New System.Windows.Forms.Label()
+        Private ReadOnly txtParamSearch As New System.Windows.Forms.TextBox()
+        Private ReadOnly btnAddParam As New Button()
+        Private ReadOnly btnRemoveParam As New Button()
+        Private ReadOnly btnClearSelectedParams As New Button()
+        Private ReadOnly lstAvailableParams As New ListBox()
+        Private ReadOnly lstSelectedParams As New ListBox()
+        Private ReadOnly lblParamCounts As New System.Windows.Forms.Label()
+
+        ' --- RVT list ---
         Private ReadOnly lstFiles As New ListBox()
-        Private ReadOnly btnAdd As New Button()
-        Private ReadOnly btnRemove As New Button()
-        Private ReadOnly btnClear As New Button()
+        Private ReadOnly btnAddRvt As New Button()
+        Private ReadOnly btnRemoveRvt As New Button()
+        Private ReadOnly btnClearRvt As New Button()
+
+        ' --- Actions ---
         Private ReadOnly btnScan As New Button()
         Private ReadOnly btnExport As New Button()
         Private ReadOnly btnClose As New Button()
-
-        Private ReadOnly chkOnlyImportant As New CheckBox()
-        Private ReadOnly chkIncludeTypeSelection As New CheckBox()
-        Private ReadOnly chkRecursive As New CheckBox()
-        Private ReadOnly numMaxDepth As New NumericUpDown()
 
         Private ReadOnly dgv As New DataGridView()
         Private ReadOnly lblStatus As New System.Windows.Forms.Label()
         Private ReadOnly pbar As New ProgressBar()
 
+        Private _allSharedParams As List(Of SharedParamItem) = New List(Of SharedParamItem)()
         Private _rows As List(Of AuditRow) = New List(Of AuditRow)()
 
         Public Sub New(uiapp As UIApplication)
             _uiapp = uiapp
             BuildUi()
+
+            ' ✅ 사용자 입력 없이: 현재 Revit에 설정된 Shared Parameters 파일에서 로드
+            ReloadSharedParamsFromRevit()
+
+            RefreshAvailableParams()
+            UpdateButtonStates()
         End Sub
 
         Private Sub BuildUi()
-            Text = "Nested Family Parameter Link Audit (POC)"
-            Width = 1280
-            Height = 720
+            Text = "Association Check - Nested Family Parameter Audit"
+            Width = 1450
+            Height = 820
             StartPosition = FormStartPosition.CenterScreen
 
             Dim root As New TableLayoutPanel() With {
@@ -130,53 +172,31 @@ Namespace KKY_Tool_Revit
                 .RowCount = 2,
                 .ColumnCount = 1
             }
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 90))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 70))
             root.RowStyles.Add(New RowStyle(SizeType.Percent, 100))
 
+            ' ---------- Top bar ----------
             Dim top As New TableLayoutPanel() With {
                 .Dock = DockStyle.Fill,
-                .RowCount = 2,
-                .ColumnCount = 10
+                .RowCount = 1,
+                .ColumnCount = 6
             }
-            For i As Integer = 0 To 9
-                top.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 10))
-            Next
-            top.RowStyles.Add(New RowStyle(SizeType.Absolute, 34))
-            top.RowStyles.Add(New RowStyle(SizeType.Absolute, 56))
+            top.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 120)) ' Scan
+            top.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 120)) ' Export
+            top.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 120)) ' Close
+            top.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100))  ' Status
+            top.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 240)) ' Progress
+            top.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 10))
 
-            btnAdd.Text = "RVT 추가..."
-            btnRemove.Text = "선택 제거"
-            btnClear.Text = "목록 지우기"
             btnScan.Text = "스캔 실행"
             btnExport.Text = "CSV 저장..."
             btnClose.Text = "닫기"
+            lblStatus.Text = "준비됨"
+            lblStatus.AutoSize = True
 
-            AddHandler btnAdd.Click, AddressOf OnAddFiles
-            AddHandler btnRemove.Click, AddressOf OnRemoveSelected
-            AddHandler btnClear.Click, AddressOf OnClearFiles
             AddHandler btnScan.Click, AddressOf OnScan
             AddHandler btnExport.Click, AddressOf OnExport
             AddHandler btnClose.Click, Sub() Close()
-
-            chkOnlyImportant.Text = "주요 파라미터만 검사(권장)"
-            chkOnlyImportant.Checked = True
-
-            chkIncludeTypeSelection.Text = "네스티드 타입 선택(Type) 연동도 검사"
-            chkIncludeTypeSelection.Checked = True
-
-            chkRecursive.Text = "중첩 패밀리도 재귀 스캔(호스트로 별도 검사)"
-            chkRecursive.Checked = False
-
-            numMaxDepth.Minimum = 1
-            numMaxDepth.Maximum = 5
-            numMaxDepth.Value = 2
-            numMaxDepth.Enabled = chkRecursive.Checked
-            AddHandler chkRecursive.CheckedChanged, Sub()
-                                                        numMaxDepth.Enabled = chkRecursive.Checked
-                                                    End Sub
-
-            lblStatus.Text = "준비됨"
-            lblStatus.AutoSize = True
 
             pbar.Style = ProgressBarStyle.Blocks
             pbar.Minimum = 0
@@ -184,42 +204,31 @@ Namespace KKY_Tool_Revit
             pbar.Value = 0
             pbar.Dock = DockStyle.Fill
 
-            top.Controls.Add(btnAdd, 0, 0)
-            top.Controls.Add(btnRemove, 1, 0)
-            top.Controls.Add(btnClear, 2, 0)
-            top.Controls.Add(btnScan, 3, 0)
-            top.Controls.Add(btnExport, 4, 0)
-            top.Controls.Add(btnClose, 5, 0)
+            top.Controls.Add(btnScan, 0, 0)
+            top.Controls.Add(btnExport, 1, 0)
+            top.Controls.Add(btnClose, 2, 0)
+            top.Controls.Add(lblStatus, 3, 0)
+            top.Controls.Add(pbar, 4, 0)
 
-            top.Controls.Add(chkOnlyImportant, 6, 0)
-            top.SetColumnSpan(chkOnlyImportant, 4)
-
-            top.Controls.Add(chkIncludeTypeSelection, 0, 1)
-            top.SetColumnSpan(chkIncludeTypeSelection, 3)
-
-            top.Controls.Add(chkRecursive, 3, 1)
-            top.SetColumnSpan(chkRecursive, 3)
-
-            Dim depthPanel As New FlowLayoutPanel() With {.Dock = DockStyle.Fill, .FlowDirection = FlowDirection.LeftToRight}
-            depthPanel.Controls.Add(New System.Windows.Forms.Label() With {.Text = "MaxDepth:", .AutoSize = True, .Padding = New Padding(0, 8, 0, 0)})
-            depthPanel.Controls.Add(numMaxDepth)
-            top.Controls.Add(depthPanel, 6, 1)
-
-            top.Controls.Add(lblStatus, 7, 1)
-            top.SetColumnSpan(lblStatus, 2)
-
-            top.Controls.Add(pbar, 9, 1)
-
+            ' ---------- Body ----------
             Dim body As New SplitContainer() With {
                 .Dock = DockStyle.Fill,
                 .Orientation = Orientation.Vertical,
-                .SplitterDistance = 380
+                .SplitterDistance = 520
             }
 
-            Dim left As New GroupBox() With {.Text = "RVT 파일 목록", .Dock = DockStyle.Fill}
-            lstFiles.Dock = DockStyle.Fill
-            left.Controls.Add(lstFiles)
-            body.Panel1.Controls.Add(left)
+            Dim leftRoot As New TableLayoutPanel() With {
+                .Dock = DockStyle.Fill,
+                .RowCount = 2,
+                .ColumnCount = 1
+            }
+            leftRoot.RowStyles.Add(New RowStyle(SizeType.Percent, 58))
+            leftRoot.RowStyles.Add(New RowStyle(SizeType.Percent, 42))
+
+            leftRoot.Controls.Add(BuildParamGroup(), 0, 0)
+            leftRoot.Controls.Add(BuildRvtGroup(), 0, 1)
+
+            body.Panel1.Controls.Add(leftRoot)
 
             Dim right As New GroupBox() With {.Text = "결과", .Dock = DockStyle.Fill}
             dgv.Dock = DockStyle.Fill
@@ -229,8 +238,8 @@ Namespace KKY_Tool_Revit
             dgv.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells
             dgv.SelectionMode = DataGridViewSelectionMode.FullRowSelect
             dgv.MultiSelect = True
-
             right.Controls.Add(dgv)
+
             body.Panel2.Controls.Add(right)
 
             root.Controls.Add(top, 0, 0)
@@ -241,6 +250,322 @@ Namespace KKY_Tool_Revit
             btnExport.Enabled = False
         End Sub
 
+        Private Function BuildParamGroup() As System.Windows.Forms.Control
+            Dim gb As New GroupBox() With {.Text = "1) 검토할 파라미터 (Revit에 설정된 Shared Parameters 파일에서 검색 후 등록)", .Dock = DockStyle.Fill}
+
+            Dim lay As New TableLayoutPanel() With {
+                .Dock = DockStyle.Fill,
+                .RowCount = 4,
+                .ColumnCount = 1
+            }
+            lay.RowStyles.Add(New RowStyle(SizeType.Absolute, 36)) ' source row
+            lay.RowStyles.Add(New RowStyle(SizeType.Absolute, 36)) ' search row
+            lay.RowStyles.Add(New RowStyle(SizeType.Percent, 100)) ' lists
+            lay.RowStyles.Add(New RowStyle(SizeType.Absolute, 28)) ' counts
+
+            ' source row
+            Dim srcRow As New TableLayoutPanel() With {.Dock = DockStyle.Fill, .RowCount = 1, .ColumnCount = 2}
+            srcRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 180))
+            srcRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100))
+
+            btnReloadShared.Text = "SharedParam 새로고침"
+            AddHandler btnReloadShared.Click, Sub()
+                                                  ReloadSharedParamsFromRevit()
+                                                  RefreshAvailableParams()
+                                                  UpdateButtonStates()
+                                              End Sub
+
+            lblSharedSource.Text = "(Revit Shared Parameters 파일 미확인)"
+            lblSharedSource.AutoEllipsis = True
+            lblSharedSource.Dock = DockStyle.Fill
+            lblSharedSource.TextAlign = Drawing.ContentAlignment.MiddleLeft
+
+            srcRow.Controls.Add(btnReloadShared, 0, 0)
+            srcRow.Controls.Add(lblSharedSource, 1, 0)
+
+            ' search row
+            Dim searchRow As New TableLayoutPanel() With {.Dock = DockStyle.Fill, .RowCount = 1, .ColumnCount = 2}
+            searchRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 80))
+            searchRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100))
+
+            Dim lblSearch As New System.Windows.Forms.Label() With {.Text = "검색:", .AutoSize = True, .Padding = New Padding(0, 8, 0, 0)}
+            txtParamSearch.Dock = DockStyle.Fill
+            AddHandler txtParamSearch.TextChanged, Sub() RefreshAvailableParams()
+
+            searchRow.Controls.Add(lblSearch, 0, 0)
+            searchRow.Controls.Add(txtParamSearch, 1, 0)
+
+            ' lists row
+            Dim lists As New TableLayoutPanel() With {.Dock = DockStyle.Fill, .RowCount = 1, .ColumnCount = 3}
+            lists.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 46))
+            lists.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 84))
+            lists.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 54))
+
+            Dim gbAvail As New GroupBox() With {.Text = "검색 결과", .Dock = DockStyle.Fill}
+            lstAvailableParams.Dock = DockStyle.Fill
+            lstAvailableParams.SelectionMode = SelectionMode.MultiExtended
+            gbAvail.Controls.Add(lstAvailableParams)
+
+            Dim mid As New FlowLayoutPanel() With {.Dock = DockStyle.Fill, .FlowDirection = FlowDirection.TopDown}
+            btnAddParam.Text = "추가 >>"
+            btnRemoveParam.Text = "<< 제거"
+            btnClearSelectedParams.Text = "선택목록 비우기"
+            btnAddParam.Width = 76
+            btnRemoveParam.Width = 76
+            btnClearSelectedParams.Width = 76
+
+            AddHandler btnAddParam.Click, AddressOf OnAddSelectedParam
+            AddHandler btnRemoveParam.Click, AddressOf OnRemoveSelectedParam
+            AddHandler btnClearSelectedParams.Click, AddressOf OnClearSelectedParams
+
+            mid.Controls.Add(btnAddParam)
+            mid.Controls.Add(btnRemoveParam)
+            mid.Controls.Add(btnClearSelectedParams)
+
+            Dim gbSel As New GroupBox() With {.Text = "검토 대상(등록됨)", .Dock = DockStyle.Fill}
+            lstSelectedParams.Dock = DockStyle.Fill
+            lstSelectedParams.SelectionMode = SelectionMode.MultiExtended
+            gbSel.Controls.Add(lstSelectedParams)
+
+            lists.Controls.Add(gbAvail, 0, 0)
+            lists.Controls.Add(mid, 1, 0)
+            lists.Controls.Add(gbSel, 2, 0)
+
+            lblParamCounts.Text = "선택 0개 / 파일 0개"
+            lblParamCounts.AutoSize = True
+            lblParamCounts.Padding = New Padding(4, 4, 0, 0)
+
+            lay.Controls.Add(srcRow, 0, 0)
+            lay.Controls.Add(searchRow, 0, 1)
+            lay.Controls.Add(lists, 0, 2)
+            lay.Controls.Add(lblParamCounts, 0, 3)
+
+            gb.Controls.Add(lay)
+            Return gb
+        End Function
+
+        Private Function BuildRvtGroup() As System.Windows.Forms.Control
+            Dim gb As New GroupBox() With {.Text = "2) RVT 파일 목록", .Dock = DockStyle.Fill}
+
+            Dim lay As New TableLayoutPanel() With {
+                .Dock = DockStyle.Fill,
+                .RowCount = 2,
+                .ColumnCount = 1
+            }
+            lay.RowStyles.Add(New RowStyle(SizeType.Absolute, 40))
+            lay.RowStyles.Add(New RowStyle(SizeType.Percent, 100))
+
+            Dim btnRow As New FlowLayoutPanel() With {.Dock = DockStyle.Fill}
+            btnAddRvt.Text = "RVT 추가..."
+            btnRemoveRvt.Text = "선택 제거"
+            btnClearRvt.Text = "목록 지우기"
+            AddHandler btnAddRvt.Click, AddressOf OnAddFiles
+            AddHandler btnRemoveRvt.Click, AddressOf OnRemoveSelected
+            AddHandler btnClearRvt.Click, AddressOf OnClearFiles
+
+            btnRow.Controls.Add(btnAddRvt)
+            btnRow.Controls.Add(btnRemoveRvt)
+            btnRow.Controls.Add(btnClearRvt)
+
+            lstFiles.Dock = DockStyle.Fill
+            lay.Controls.Add(btnRow, 0, 0)
+            lay.Controls.Add(lstFiles, 0, 1)
+
+            gb.Controls.Add(lay)
+            Return gb
+        End Function
+
+        Private Sub UpdateButtonStates()
+            Dim hasParams As Boolean = (lstSelectedParams.Items.Count > 0)
+            Dim hasRvts As Boolean = (lstFiles.Items.Count > 0)
+
+            btnScan.Enabled = hasParams AndAlso hasRvts
+            btnExport.Enabled = (_rows IsNot Nothing AndAlso _rows.Count > 0)
+
+            lblParamCounts.Text = $"선택 {lstSelectedParams.Items.Count}개 / 파일 {lstFiles.Items.Count}개"
+        End Sub
+
+        Private Sub SetBusy(isBusy As Boolean, status As String)
+            btnReloadShared.Enabled = Not isBusy
+            txtParamSearch.Enabled = Not isBusy
+            btnAddParam.Enabled = Not isBusy
+            btnRemoveParam.Enabled = Not isBusy
+            btnClearSelectedParams.Enabled = Not isBusy
+            lstAvailableParams.Enabled = Not isBusy
+            lstSelectedParams.Enabled = Not isBusy
+
+            btnAddRvt.Enabled = Not isBusy
+            btnRemoveRvt.Enabled = Not isBusy
+            btnClearRvt.Enabled = Not isBusy
+            lstFiles.Enabled = Not isBusy
+
+            btnScan.Enabled = Not isBusy
+            btnClose.Enabled = Not isBusy
+
+            lblStatus.Text = status
+
+            If isBusy Then
+                pbar.Style = ProgressBarStyle.Marquee
+                pbar.MarqueeAnimationSpeed = 30
+            Else
+                pbar.Style = ProgressBarStyle.Blocks
+                pbar.MarqueeAnimationSpeed = 0
+                pbar.Value = 0
+            End If
+
+            System.Windows.Forms.Application.DoEvents()
+            UpdateButtonStates()
+        End Sub
+
+        ' =========================
+        ' ✅ Shared params: from Revit configured file
+        ' =========================
+        Private Sub ReloadSharedParamsFromRevit()
+            _allSharedParams = New List(Of SharedParamItem)()
+
+            Dim spPath As String = ""
+            Try
+                spPath = SafeStr(_uiapp.Application.SharedParametersFilename)
+            Catch
+                spPath = ""
+            End Try
+
+            Dim defFile As DefinitionFile = Nothing
+            Try
+                defFile = _uiapp.Application.OpenSharedParameterFile()
+            Catch
+                defFile = Nothing
+            End Try
+
+            If defFile Is Nothing Then
+                lblSharedSource.Text = If(String.IsNullOrWhiteSpace(spPath),
+                                         "Revit에 Shared Parameters 파일이 설정되지 않았습니다. (Revit 옵션에서 설정 필요)",
+                                         "Shared Parameters 파일을 열 수 없습니다: " & spPath)
+                Return
+            End If
+
+            Dim list As New List(Of SharedParamItem)()
+
+            Try
+                For Each grp As DefinitionGroup In defFile.Groups
+                    If grp Is Nothing Then Continue For
+
+                    For Each defn As Definition In grp.Definitions
+                        Dim ext As ExternalDefinition = TryCast(defn, ExternalDefinition)
+                        If ext Is Nothing Then Continue For
+
+                        list.Add(New SharedParamItem With {
+                            .Name = SafeStr(ext.Name),
+                            .Guid = ext.GUID,
+                            .GroupName = SafeStr(grp.Name),
+                            .DataTypeToken = SafeDefTypeToken(ext)
+                        })
+                    Next
+                Next
+            Catch ex As Exception
+                lblSharedSource.Text = "Shared Parameters 로딩 중 오류: " & ex.Message
+                _allSharedParams = New List(Of SharedParamItem)()
+                Return
+            End Try
+
+            _allSharedParams = list.
+                Where(Function(x) x IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(x.Name)).
+                OrderBy(Function(x) If(x.GroupName, ""), StringComparer.OrdinalIgnoreCase).
+                ThenBy(Function(x) If(x.Name, ""), StringComparer.OrdinalIgnoreCase).
+                ToList()
+
+            Dim fileName As String = ""
+            Try
+                fileName = If(String.IsNullOrWhiteSpace(spPath), "(unknown)", spPath)
+            Catch
+                fileName = "(unknown)"
+            End Try
+
+            lblSharedSource.Text = $"SharedParam Source: {fileName}  /  { _allSharedParams.Count }개"
+        End Sub
+
+        Private Sub RefreshAvailableParams()
+            lstAvailableParams.BeginUpdate()
+            Try
+                lstAvailableParams.Items.Clear()
+
+                Dim q As String = If(txtParamSearch.Text, "").Trim()
+                Dim qHas As Boolean = Not String.IsNullOrWhiteSpace(q)
+
+                Dim selectedNames As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+                For Each it As Object In lstSelectedParams.Items
+                    Dim sp As SharedParamItem = TryCast(it, SharedParamItem)
+                    If sp IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(sp.Name) Then
+                        selectedNames.Add(sp.Name)
+                    End If
+                Next
+
+                For Each sp As SharedParamItem In _allSharedParams
+                    If sp Is Nothing Then Continue For
+                    If selectedNames.Contains(sp.Name) Then Continue For
+
+                    If qHas Then
+                        Dim hit As Boolean =
+                            (sp.Name IsNot Nothing AndAlso sp.Name.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0) OrElse
+                            (sp.GroupName IsNot Nothing AndAlso sp.GroupName.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0) OrElse
+                            (sp.Guid.ToString("D").IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0)
+                        If Not hit Then Continue For
+                    End If
+
+                    lstAvailableParams.Items.Add(sp)
+                Next
+            Finally
+                lstAvailableParams.EndUpdate()
+            End Try
+
+            UpdateButtonStates()
+        End Sub
+
+        Private Sub OnAddSelectedParam(sender As Object, e As EventArgs)
+            If lstAvailableParams.SelectedItems.Count = 0 Then Return
+
+            Dim existingNames As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            For Each it As Object In lstSelectedParams.Items
+                Dim sp0 As SharedParamItem = TryCast(it, SharedParamItem)
+                If sp0 IsNot Nothing Then existingNames.Add(sp0.Name)
+            Next
+
+            For Each it As Object In lstAvailableParams.SelectedItems
+                Dim sp As SharedParamItem = TryCast(it, SharedParamItem)
+                If sp Is Nothing Then Continue For
+                If existingNames.Contains(sp.Name) Then Continue For
+                lstSelectedParams.Items.Add(sp)
+                existingNames.Add(sp.Name)
+            Next
+
+            RefreshAvailableParams()
+            UpdateButtonStates()
+        End Sub
+
+        Private Sub OnRemoveSelectedParam(sender As Object, e As EventArgs)
+            If lstSelectedParams.SelectedItems.Count = 0 Then Return
+
+            Dim toRemove As New List(Of Object)()
+            For Each it As Object In lstSelectedParams.SelectedItems
+                toRemove.Add(it)
+            Next
+            For Each it As Object In toRemove
+                lstSelectedParams.Items.Remove(it)
+            Next
+
+            RefreshAvailableParams()
+            UpdateButtonStates()
+        End Sub
+
+        Private Sub OnClearSelectedParams(sender As Object, e As EventArgs)
+            lstSelectedParams.Items.Clear()
+            RefreshAvailableParams()
+            UpdateButtonStates()
+        End Sub
+
+        ' =========================
+        ' RVT list
+        ' =========================
         Private Sub OnAddFiles(sender As Object, e As EventArgs)
             Using ofd As New OpenFileDialog()
                 ofd.Filter = "Revit Project (*.rvt)|*.rvt"
@@ -260,6 +585,8 @@ Namespace KKY_Tool_Revit
                     End If
                 Next
             End Using
+
+            UpdateButtonStates()
         End Sub
 
         Private Sub OnRemoveSelected(sender As Object, e As EventArgs)
@@ -270,41 +597,36 @@ Namespace KKY_Tool_Revit
             For Each it As Object In selected
                 lstFiles.Items.Remove(it)
             Next
+            UpdateButtonStates()
         End Sub
 
         Private Sub OnClearFiles(sender As Object, e As EventArgs)
             lstFiles.Items.Clear()
+            UpdateButtonStates()
         End Sub
 
-        Private Sub SetBusy(isBusy As Boolean, status As String)
-            btnAdd.Enabled = Not isBusy
-            btnRemove.Enabled = Not isBusy
-            btnClear.Enabled = Not isBusy
-            btnScan.Enabled = Not isBusy
-            btnClose.Enabled = Not isBusy
-
-            chkOnlyImportant.Enabled = Not isBusy
-            chkIncludeTypeSelection.Enabled = Not isBusy
-            chkRecursive.Enabled = Not isBusy
-            numMaxDepth.Enabled = (Not isBusy AndAlso chkRecursive.Checked)
-
-            lblStatus.Text = status
-
-            If isBusy Then
-                pbar.Style = ProgressBarStyle.Marquee
-                pbar.MarqueeAnimationSpeed = 30
-            Else
-                pbar.Style = ProgressBarStyle.Blocks
-                pbar.MarqueeAnimationSpeed = 0
-                pbar.Value = 0
+        ' =========================
+        ' Scan / Export
+        ' =========================
+        Private Sub OnScan(sender As Object, e As EventArgs)
+            If lstSelectedParams.Items.Count = 0 Then
+                MessageBox.Show(Me, "검토할 파라미터를 먼저 등록하세요.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                Return
+            End If
+            If lstFiles.Items.Count = 0 Then
+                MessageBox.Show(Me, "RVT 파일을 먼저 추가하세요.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                Return
             End If
 
-            System.Windows.Forms.Application.DoEvents()
-        End Sub
-
-        Private Sub OnScan(sender As Object, e As EventArgs)
-            If lstFiles.Items.Count = 0 Then
-                MessageBox.Show(Me, "먼저 RVT 파일을 목록에 추가하세요.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            Dim selectedParams As New List(Of SharedParamItem)()
+            For Each it As Object In lstSelectedParams.Items
+                Dim sp As SharedParamItem = TryCast(it, SharedParamItem)
+                If sp IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(sp.Name) Then
+                    selectedParams.Add(sp)
+                End If
+            Next
+            If selectedParams.Count = 0 Then
+                MessageBox.Show(Me, "검토할 파라미터가 비어있습니다.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Information)
                 Return
             End If
 
@@ -313,16 +635,11 @@ Namespace KKY_Tool_Revit
                 paths.Add(CStr(it))
             Next
 
-            Dim onlyImportant As Boolean = chkOnlyImportant.Checked
-            Dim includeTypeSel As Boolean = chkIncludeTypeSelection.Checked
-            Dim recursive As Boolean = chkRecursive.Checked
-            Dim maxDepth As Integer = CInt(numMaxDepth.Value)
-
-            SetBusy(True, "스캔 중... (문서/패밀리 여는 동안 잠시 멈춘 것처럼 보일 수 있음)")
+            SetBusy(True, "스캔 중... (복합 패밀리만 대상으로 연동 검토)")
 
             Dim results As List(Of AuditRow) = Nothing
             Try
-                results = AuditFiles(_uiapp, paths, onlyImportant, includeTypeSel, recursive, maxDepth)
+                results = AuditFiles(_uiapp, paths, selectedParams)
             Catch ex As Exception
                 SetBusy(False, "오류")
                 MessageBox.Show(Me, ex.ToString(), "스캔 오류", MessageBoxButtons.OK, MessageBoxIcon.Error)
@@ -336,14 +653,14 @@ Namespace KKY_Tool_Revit
 
             btnExport.Enabled = (_rows IsNot Nothing AndAlso _rows.Count > 0)
 
-            ' ✅ VB: _rows.Count(Function...) 금지 → LINQ로 변경
             Dim cntOk As Integer = _rows.Where(Function(r) r.Issue = AuditIssueType.OK.ToString()).Count()
             Dim cntMiss As Integer = _rows.Where(Function(r) r.Issue = AuditIssueType.MissingAssociation.ToString()).Count()
-            Dim cntSus As Integer = _rows.Where(Function(r) r.Issue = AuditIssueType.SuspiciousAssociation.ToString()).Count()
-            Dim cntConf As Integer = _rows.Where(Function(r) r.Issue = AuditIssueType.SharedTypeDrivenConflict.ToString()).Count()
+            Dim cntGuid As Integer = _rows.Where(Function(r) r.Issue = AuditIssueType.GuidMismatch.ToString()).Count()
+            Dim cntHostNotShared As Integer = _rows.Where(Function(r) r.Issue = AuditIssueType.HostParamNotShared.ToString()).Count()
+            Dim cntNotFound As Integer = _rows.Where(Function(r) r.Issue = AuditIssueType.ParamNotFound.ToString()).Count()
             Dim cntErr As Integer = _rows.Where(Function(r) r.Issue = AuditIssueType.[Error].ToString()).Count()
 
-            SetBusy(False, $"완료: {paths.Count}개 RVT / Rows={_rows.Count} (OK {cntOk}, Missing {cntMiss}, Sus {cntSus}, Conflict {cntConf}, Err {cntErr})")
+            SetBusy(False, $"완료: RVT {paths.Count}개 / Rows={_rows.Count} (OK {cntOk}, Missing {cntMiss}, Guid {cntGuid}, HostNotShared {cntHostNotShared}, NotFound {cntNotFound}, Err {cntErr})")
         End Sub
 
         Private Sub OnExport(sender As Object, e As EventArgs)
@@ -355,7 +672,7 @@ Namespace KKY_Tool_Revit
             Using sfd As New SaveFileDialog()
                 sfd.Filter = "CSV (*.csv)|*.csv"
                 sfd.Title = "결과 CSV 저장"
-                sfd.FileName = "NestedFamilyParamAudit.csv"
+                sfd.FileName = "AssociationCheck_Result.csv"
                 If sfd.ShowDialog(Me) <> DialogResult.OK Then Return
 
                 Try
@@ -368,24 +685,37 @@ Namespace KKY_Tool_Revit
         End Sub
 
         ' -------------------------
-        ' Core Audit
+        ' Core Audit (Complex family only)
         ' -------------------------
         Private Shared Function AuditFiles(uiapp As UIApplication,
                                            paths As List(Of String),
-                                           onlyImportant As Boolean,
-                                           includeTypeSelection As Boolean,
-                                           recursive As Boolean,
-                                           maxDepth As Integer) As List(Of AuditRow)
+                                           selectedParams As List(Of SharedParamItem)) As List(Of AuditRow)
 
             Dim rows As New List(Of AuditRow)()
+
+            Dim expectedByName As New Dictionary(Of String, SharedParamItem)(StringComparer.OrdinalIgnoreCase)
+            For Each sp As SharedParamItem In selectedParams
+                If sp Is Nothing OrElse String.IsNullOrWhiteSpace(sp.Name) Then Continue For
+                If Not expectedByName.ContainsKey(sp.Name) Then expectedByName.Add(sp.Name, sp)
+            Next
 
             For Each path As String In paths
                 Dim doc As Document = Nothing
                 Try
                     doc = OpenProjectDocument(uiapp.Application, path)
 
-                    Dim visited As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-                    AuditProjectDocument(doc, path, onlyImportant, includeTypeSelection, recursive, maxDepth, rows, visited)
+                    Dim fams As IEnumerable(Of Family) =
+                        New FilteredElementCollector(doc).
+                            OfClass(GetType(Family)).
+                            Cast(Of Family)()
+
+                    For Each fam As Family In fams
+                        If fam Is Nothing Then Continue For
+                        If Not fam.IsEditable Then Continue For
+                        If fam.IsInPlace Then Continue For
+
+                        AuditFamilyAsHost(doc, fam, path, expectedByName, rows)
+                    Next
 
                 Catch ex As Exception
                     rows.Add(New AuditRow With {
@@ -406,43 +736,11 @@ Namespace KKY_Tool_Revit
             Return rows
         End Function
 
-        Private Shared Sub AuditProjectDocument(doc As Document,
-                                               projectPath As String,
-                                               onlyImportant As Boolean,
-                                               includeTypeSelection As Boolean,
-                                               recursive As Boolean,
-                                               maxDepth As Integer,
-                                               rows As List(Of AuditRow),
-                                               visited As HashSet(Of String))
-
-            Dim fams As IEnumerable(Of Family) =
-                New FilteredElementCollector(doc).
-                    OfClass(GetType(Family)).
-                    Cast(Of Family)()
-
-            For Each fam As Family In fams
-                If fam Is Nothing Then Continue For
-                If Not fam.IsEditable Then Continue For
-                If fam.IsInPlace Then Continue For
-
-                AuditFamilyAsHost(doc, fam, projectPath, onlyImportant, includeTypeSelection, recursive, maxDepth, 1, rows, visited)
-            Next
-        End Sub
-
         Private Shared Sub AuditFamilyAsHost(hostDoc As Document,
                                              hostFamily As Family,
                                              projectPath As String,
-                                             onlyImportant As Boolean,
-                                             includeTypeSelection As Boolean,
-                                             recursive As Boolean,
-                                             maxDepth As Integer,
-                                             depth As Integer,
-                                             rows As List(Of AuditRow),
-                                             visited As HashSet(Of String))
-
-            Dim hostKey As String = $"{projectPath}||{hostFamily.Name}||Depth{depth}"
-            If visited.Contains(hostKey) Then Return
-            visited.Add(hostKey)
+                                             expectedByName As Dictionary(Of String, SharedParamItem),
+                                             rows As List(Of AuditRow))
 
             Dim famDoc As Document = Nothing
             Try
@@ -454,9 +752,17 @@ Namespace KKY_Tool_Revit
                         OfClass(GetType(FamilyInstance)).
                         WhereElementIsNotElementType().
                         Cast(Of FamilyInstance)().
+                        Where(Function(x) x IsNot Nothing AndAlso x.Symbol IsNot Nothing AndAlso x.Symbol.Family IsNot Nothing).
                         ToList()
 
                 If nestedInstances.Count = 0 Then Return
+
+                ' ✅ 같은 Symbol 반복검사 방지
+                Dim repInstances As List(Of FamilyInstance) =
+                    nestedInstances.
+                        GroupBy(Function(fi) fi.Symbol.Id.IntegerValue).
+                        Select(Function(g) g.First()).
+                        ToList()
 
                 Dim hostCat As String = ""
                 Try
@@ -464,13 +770,8 @@ Namespace KKY_Tool_Revit
                 Catch
                 End Try
 
-                For Each fi As FamilyInstance In nestedInstances
-                    If fi Is Nothing Then Continue For
-                    If fi.Symbol Is Nothing Then Continue For
-                    If fi.Symbol.Family Is Nothing Then Continue For
-
+                For Each fi As FamilyInstance In repInstances
                     Dim nestedFam As Family = fi.Symbol.Family
-                    Dim nestedIsShared As Boolean = IsFamilyShared(nestedFam)
 
                     Dim nestedCat As String = ""
                     Try
@@ -478,18 +779,14 @@ Namespace KKY_Tool_Revit
                     Catch
                     End Try
 
-                    Dim paramTuples As List(Of Tuple(Of Parameter, ParamScope)) = CollectParams(fi, includeTypeSelection)
+                    Dim map As Dictionary(Of String, List(Of FoundParam)) = CollectParamMap(fi)
 
-                    For Each t As Tuple(Of Parameter, ParamScope) In paramTuples
-                        Dim p As Parameter = t.Item1
-                        Dim scope As ParamScope = t.Item2
+                    For Each kv As KeyValuePair(Of String, SharedParamItem) In expectedByName
+                        Dim targetName As String = kv.Key
+                        Dim expected As SharedParamItem = kv.Value
 
-                        If Not ShouldInspect(p, scope, onlyImportant) Then Continue For
-
-                        Dim assoc As FamilyParameter = Nothing
-                        Try
-                            assoc = famDoc.FamilyManager.GetAssociatedFamilyParameter(p)
-                        Catch ex As Exception
+                        Dim found As List(Of FoundParam) = Nothing
+                        If Not map.TryGetValue(targetName, found) OrElse found Is Nothing OrElse found.Count = 0 Then
                             rows.Add(New AuditRow With {
                                 .ProjectPath = projectPath,
                                 .HostFamilyName = hostFamily.Name,
@@ -497,78 +794,121 @@ Namespace KKY_Tool_Revit
                                 .NestedFamilyName = nestedFam.Name,
                                 .NestedTypeName = SafeStr(fi.Symbol.Name),
                                 .NestedCategory = nestedCat,
-                                .NestedIsShared = nestedIsShared,
-                                .NestedParamScope = scope.ToString(),
-                                .NestedParamName = SafeParamName(p),
-                                .NestedParamType = SafeParamTypeName(p),
-                                .Issue = AuditIssueType.[Error].ToString(),
-                                .Notes = "GetAssociatedFamilyParameter failed: " & ex.Message
+                                .TargetParamName = targetName,
+                                .ExpectedGuid = expected.Guid.ToString("D"),
+                                .Issue = AuditIssueType.ParamNotFound.ToString(),
+                                .Notes = "네스티드(하위) 패밀리 인스턴스/타입에서 해당 이름의 파라미터를 찾지 못함"
                             })
                             Continue For
-                        End Try
+                        End If
 
-                        Dim issue As AuditIssueType = AuditIssueType.OK
-                        Dim notes As String = ""
+                        For Each fp As FoundParam In found
+                            Dim p As Parameter = fp.P
+                            If p Is Nothing OrElse p.Definition Is Nothing Then Continue For
 
-                        If assoc Is Nothing Then
-                            issue = AuditIssueType.MissingAssociation
-                            notes = "호스트 패밀리 파라미터로 연동(Associate)되지 않음"
-                        Else
-                            If scope = ParamScope.InstanceParam AndAlso Not assoc.IsInstance Then
-                                issue = AuditIssueType.SuspiciousAssociation
-                                notes = "인스턴스 파라미터가 호스트 타입 파라미터로 연결된 것으로 보임(의도 확인)"
-                            ElseIf scope = ParamScope.TypeParam AndAlso assoc.IsInstance Then
-                                issue = AuditIssueType.SuspiciousAssociation
-                                notes = "타입 파라미터가 호스트 인스턴스 파라미터로 연결된 것으로 보임(의도 확인)"
-                            End If
+                            ' ✅ 여기부터 핵심 변경: ExternalDefinition 캐스팅이 아니라 Parameter 자체에서 GUID/Shared 판별
+                            Dim nestedGuid As Guid
+                            Dim nestedGuidOk As Boolean = TryGetParameterGuid(p, nestedGuid)
+                            Dim nestedGuidStr As String = If(nestedGuidOk, nestedGuid.ToString("D"), "")
 
-                            Dim ptNested As ParameterType = SafeGetParameterType(p)
-                            Dim ptHost As ParameterType = SafeGetParameterType(assoc)
-                            If ptNested <> ParameterType.Invalid AndAlso ptHost <> ParameterType.Invalid AndAlso ptNested <> ptHost Then
-                                issue = AuditIssueType.SuspiciousAssociation
-                                If notes <> "" Then notes &= " / "
-                                notes &= $"파라미터 타입 불일치({ptNested} -> {ptHost})"
-                            End If
+                            Dim nestedIsShared As Boolean = False
+                            Dim nestedIsSharedKnown As Boolean = TryGetParameterIsShared(p, nestedIsShared)
 
-                            If nestedIsShared AndAlso (scope = ParamScope.TypeSelection) Then
-                                If ptHost = ParameterType.FamilyType Then
-                                    issue = AuditIssueType.SharedTypeDrivenConflict
-                                    notes = "Shared 네스티드 패밀리는 호스트에서 타입(FamilyType) 구동이 제한/불가할 수 있음"
+                            Dim assoc As FamilyParameter = Nothing
+                            Try
+                                assoc = famDoc.FamilyManager.GetAssociatedFamilyParameter(p)
+                            Catch ex As Exception
+                                rows.Add(New AuditRow With {
+                                    .ProjectPath = projectPath,
+                                    .HostFamilyName = hostFamily.Name,
+                                    .HostFamilyCategory = hostCat,
+                                    .NestedFamilyName = nestedFam.Name,
+                                    .NestedTypeName = SafeStr(fi.Symbol.Name),
+                                    .NestedCategory = nestedCat,
+                                    .TargetParamName = targetName,
+                                    .ExpectedGuid = expected.Guid.ToString("D"),
+                                    .FoundScope = fp.Scope.ToString(),
+                                    .NestedParamGuid = nestedGuidStr,
+                                    .NestedParamDataType = SafeDefTypeToken(p.Definition),
+                                    .Issue = AuditIssueType.[Error].ToString(),
+                                    .Notes = "GetAssociatedFamilyParameter 실패: " & ex.Message
+                                })
+                                Continue For
+                            End Try
+
+                            Dim issue As AuditIssueType = AuditIssueType.OK
+                            Dim notes As String = ""
+
+                            If assoc Is Nothing Then
+                                issue = AuditIssueType.MissingAssociation
+                                notes = "호스트 패밀리 파라미터로 연동(Associate)되지 않음"
+                            Else
+                                ' 1) 네스티드 GUID 체크(Shared 파라미터면 GUID가 나와야 정상)
+                                If nestedGuidOk Then
+                                    If nestedGuid <> expected.Guid Then
+                                        issue = AuditIssueType.GuidMismatch
+                                        notes = $"네스티드 파라미터 GUID 불일치 (Expected {expected.Guid:D}, Nested {nestedGuid:D})"
+                                    End If
+                                Else
+                                    ' ✅ 여기서 이제 “정말 Shared가 아닌지 / 확인이 안되는지”를 구분해서 메시지
+                                    If nestedIsSharedKnown Then
+                                        If nestedIsShared Then
+                                            notes = "네스티드 파라미터 IsShared=True 이지만 GUID 추출 실패(특이 케이스)"
+                                        Else
+                                            notes = "네스티드 파라미터 IsShared=False (Shared 아님, 이름만 일치)"
+                                        End If
+                                    Else
+                                        notes = "네스티드 파라미터 Shared 여부 확인 실패(이름만 일치)"
+                                    End If
+                                End If
+
+                                ' 2) 호스트 연결 파라미터가 Shared가 아니면 표시
+                                If assoc.IsShared = False Then
+                                    If issue = AuditIssueType.OK Then issue = AuditIssueType.HostParamNotShared
+                                    If notes <> "" Then notes &= " / "
+                                    notes &= "연결된 호스트 FamilyParameter가 Shared가 아님"
+                                End If
+
+                                ' 3) 호스트 GUID도 비교 가능하면 비교
+                                Dim hostGuid As Guid
+                                If TryGetDefinitionGuid(assoc.Definition, hostGuid) Then
+                                    If hostGuid <> expected.Guid Then
+                                        If issue = AuditIssueType.OK Then issue = AuditIssueType.GuidMismatch
+                                        If notes <> "" Then notes &= " / "
+                                        notes &= $"호스트 파라미터 GUID 불일치 (Expected {expected.Guid:D}, Host {hostGuid:D})"
+                                    End If
                                 End If
                             End If
-                        End If
 
-                        Dim row As New AuditRow With {
-                            .ProjectPath = projectPath,
-                            .HostFamilyName = hostFamily.Name,
-                            .HostFamilyCategory = hostCat,
-                            .NestedFamilyName = nestedFam.Name,
-                            .NestedTypeName = SafeStr(fi.Symbol.Name),
-                            .NestedCategory = nestedCat,
-                            .NestedIsShared = nestedIsShared,
-                            .NestedParamScope = scope.ToString(),
-                            .NestedParamName = SafeParamName(p),
-                            .NestedParamType = SafeParamTypeName(p),
-                            .Issue = issue.ToString(),
-                            .Notes = notes
-                        }
+                            Dim row As New AuditRow With {
+                                .ProjectPath = projectPath,
+                                .HostFamilyName = hostFamily.Name,
+                                .HostFamilyCategory = hostCat,
+                                .NestedFamilyName = nestedFam.Name,
+                                .NestedTypeName = SafeStr(fi.Symbol.Name),
+                                .NestedCategory = nestedCat,
+                                .TargetParamName = targetName,
+                                .ExpectedGuid = expected.Guid.ToString("D"),
+                                .FoundScope = fp.Scope.ToString(),
+                                .NestedParamGuid = nestedGuidStr,
+                                .NestedParamDataType = SafeDefTypeToken(p.Definition),
+                                .Issue = issue.ToString(),
+                                .Notes = notes
+                            }
 
-                        If assoc IsNot Nothing Then
-                            row.AssocHostParamName = SafeStr(assoc.Definition.Name)
-                            row.AssocHostParamIsInstance = assoc.IsInstance.ToString()
-                            row.AssocHostParamIsShared = assoc.IsShared.ToString()
-                            row.AssocHostParamIsReporting = SafeBoolToString(SafeIsReporting(assoc))
-                            row.AssocHostParamFormula = SafeStr(SafeGetFormula(assoc))
-                        End If
+                            If assoc IsNot Nothing Then
+                                row.AssocHostParamName = SafeStr(assoc.Definition.Name)
+                                row.HostParamIsShared = assoc.IsShared.ToString()
 
-                        rows.Add(row)
+                                Dim hostGuid2 As Guid
+                                If TryGetDefinitionGuid(assoc.Definition, hostGuid2) Then
+                                    row.HostParamGuid = hostGuid2.ToString("D")
+                                End If
+                            End If
+
+                            rows.Add(row)
+                        Next
                     Next
-
-                    If recursive AndAlso depth < maxDepth Then
-                        If nestedFam IsNot Nothing AndAlso nestedFam.IsEditable AndAlso Not nestedFam.IsInPlace Then
-                            AuditFamilyAsHost(famDoc, nestedFam, projectPath, onlyImportant, includeTypeSelection, True, maxDepth, depth + 1, rows, visited)
-                        End If
-                    End If
                 Next
 
             Finally
@@ -580,6 +920,116 @@ Namespace KKY_Tool_Revit
                 End If
             End Try
         End Sub
+
+        Private Shared Function CollectParamMap(fi As FamilyInstance) As Dictionary(Of String, List(Of FoundParam))
+            Dim map As New Dictionary(Of String, List(Of FoundParam))(StringComparer.OrdinalIgnoreCase)
+
+            ' Instance params
+            Try
+                For Each p As Parameter In fi.Parameters
+                    If p Is Nothing OrElse p.Definition Is Nothing Then Continue For
+                    Dim name As String = p.Definition.Name
+                    If String.IsNullOrWhiteSpace(name) Then Continue For
+                    If Not map.ContainsKey(name) Then map(name) = New List(Of FoundParam)()
+                    map(name).Add(New FoundParam With {.P = p, .Scope = FoundScope.InstanceParam})
+                Next
+            Catch
+            End Try
+
+            ' Type params
+            Try
+                If fi.Symbol IsNot Nothing Then
+                    For Each p As Parameter In fi.Symbol.Parameters
+                        If p Is Nothing OrElse p.Definition Is Nothing Then Continue For
+                        Dim name As String = p.Definition.Name
+                        If String.IsNullOrWhiteSpace(name) Then Continue For
+                        If Not map.ContainsKey(name) Then map(name) = New List(Of FoundParam)()
+                        map(name).Add(New FoundParam With {.P = p, .Scope = FoundScope.TypeParam})
+                    Next
+                End If
+            Catch
+            End Try
+
+            Return map
+        End Function
+
+        ' ✅ 기존 방식(Definition -> ExternalDefinition) 유지(호스트 FamilyParameter쪽에서 필요)
+        Private Shared Function TryGetDefinitionGuid(defn As Definition, ByRef guid As Guid) As Boolean
+            guid = Guid.Empty
+            Try
+                Dim ext As ExternalDefinition = TryCast(defn, ExternalDefinition)
+                If ext IsNot Nothing Then
+                    guid = ext.GUID
+                    If guid <> Guid.Empty Then Return True
+                End If
+            Catch
+            End Try
+            Return False
+        End Function
+
+        ' ✅ 핵심: Parameter 자체에서 Shared/GUID 추출 (Reflection로 안전하게)
+        Private Shared Function TryGetParameterIsShared(p As Parameter, ByRef isShared As Boolean) As Boolean
+            isShared = False
+            If p Is Nothing Then Return False
+            Try
+                Dim t As Type = p.GetType()
+                Dim prop As Reflection.PropertyInfo = t.GetProperty("IsShared")
+                If prop Is Nothing Then Return False
+                Dim v As Object = prop.GetValue(p, Nothing)
+                If TypeOf v Is Boolean Then
+                    isShared = CBool(v)
+                    Return True
+                End If
+            Catch
+            End Try
+            Return False
+        End Function
+
+        Private Shared Function TryGetParameterGuid(p As Parameter, ByRef guid As Guid) As Boolean
+            guid = Guid.Empty
+            If p Is Nothing Then Return False
+
+            ' 1) Parameter.IsShared/Parameter.GUID 우선
+            Try
+                Dim isShared As Boolean = False
+                Dim isSharedKnown As Boolean = TryGetParameterIsShared(p, isShared)
+                If isSharedKnown AndAlso isShared Then
+                    Dim t As Type = p.GetType()
+
+                    Dim propGuid As Reflection.PropertyInfo = t.GetProperty("GUID")
+                    If propGuid Is Nothing Then
+                        propGuid = t.GetProperty("Guid") ' 혹시 몰라서 폴백
+                    End If
+
+                    If propGuid IsNot Nothing Then
+                        Dim v As Object = propGuid.GetValue(p, Nothing)
+                        If TypeOf v Is Guid Then
+                            guid = CType(v, Guid)
+                            If guid <> Guid.Empty Then Return True
+                        End If
+                    End If
+                End If
+            Catch
+            End Try
+
+            ' 2) 폴백: Definition -> ExternalDefinition
+            Return TryGetDefinitionGuid(p.Definition, guid)
+        End Function
+
+        Private Shared Function SafeDefTypeToken(defn As Definition) As String
+            If defn Is Nothing Then Return ""
+            Try
+#If REVIT2023 = 1 Then
+                Dim dt As ForgeTypeId = defn.GetDataType()
+                If dt IsNot Nothing Then Return SafeStr(dt.TypeId)
+                Return ""
+#Else
+                Return SafeStr(defn.ParameterType.ToString())
+#End If
+            Catch
+                Return ""
+            End Try
+        End Function
 
         Private Shared Function OpenProjectDocument(app As Autodesk.Revit.ApplicationServices.Application, path As String) As Document
             If String.IsNullOrWhiteSpace(path) Then Throw New ArgumentException("path is empty.")
@@ -615,154 +1065,6 @@ Namespace KKY_Tool_Revit
             End Try
         End Function
 
-        Private Shared Function CollectParams(fi As FamilyInstance, includeTypeSelection As Boolean) As List(Of Tuple(Of Parameter, ParamScope))
-            Dim list As New List(Of Tuple(Of Parameter, ParamScope))()
-            Dim seen As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-
-            Try
-                For Each p As Parameter In fi.Parameters
-                    If p Is Nothing OrElse p.Definition Is Nothing Then Continue For
-                    Dim key As String = "I|" & p.Definition.Name
-                    If seen.Add(key) Then list.Add(Tuple.Create(p, ParamScope.InstanceParam))
-                Next
-            Catch
-            End Try
-
-            Try
-                If fi.Symbol IsNot Nothing Then
-                    For Each p As Parameter In fi.Symbol.Parameters
-                        If p Is Nothing OrElse p.Definition Is Nothing Then Continue For
-                        Dim key As String = "T|" & p.Definition.Name
-                        If seen.Add(key) Then list.Add(Tuple.Create(p, ParamScope.TypeParam))
-                    Next
-                End If
-            Catch
-            End Try
-
-            If includeTypeSelection Then
-                Try
-                    ' ✅ VB/Revit: get_Parameter 대신 Parameter(...)
-                    Dim pType As Parameter = fi.Parameter(BuiltInParameter.ELEM_TYPE_PARAM)
-                    If pType IsNot Nothing AndAlso pType.Definition IsNot Nothing Then
-                        Dim key As String = "TS|" & pType.Definition.Name
-                        If seen.Add(key) Then list.Add(Tuple.Create(pType, ParamScope.TypeSelection))
-                    End If
-                Catch
-                End Try
-            End If
-
-            Return list
-        End Function
-
-        Private Shared Function ShouldInspect(p As Parameter, scope As ParamScope, onlyImportant As Boolean) As Boolean
-            If p Is Nothing OrElse p.Definition Is Nothing Then Return False
-            If p.IsReadOnly Then Return False
-
-            If scope = ParamScope.TypeSelection Then Return True
-            If Not onlyImportant Then Return True
-
-            Dim pt As ParameterType = ParameterType.Invalid
-            Try
-                pt = p.Definition.ParameterType
-            Catch
-            End Try
-
-            Select Case pt
-                Case ParameterType.Length,
-                     ParameterType.Angle,
-                     ParameterType.YesNo,
-                     ParameterType.Material,
-                     ParameterType.Number,
-                     ParameterType.Integer,
-                     ParameterType.Text,
-                     ParameterType.Area,
-                     ParameterType.Volume
-                    Return True
-            End Select
-
-            Dim n As String = SafeStr(p.Definition.Name)
-            If String.IsNullOrWhiteSpace(n) Then Return False
-
-            Dim rx As New Regex("(width|height|depth|thick|offset|elev|level|diam|radius|slope|angle|visib|visible|material|mat|length|len)", RegexOptions.IgnoreCase)
-            If rx.IsMatch(n) Then Return True
-
-            Dim rxKr As New Regex("(폭|너비|가로|세로|높이|깊이|두께|오프셋|레벨|표고|지름|반지름|경사|각도|가시|표시|재질|길이)", RegexOptions.IgnoreCase)
-            If rxKr.IsMatch(n) Then Return True
-
-            Return False
-        End Function
-
-        Private Shared Function IsFamilyShared(fam As Family) As Boolean
-            If fam Is Nothing Then Return False
-            Try
-                ' ✅ VB/Revit: get_Parameter 대신 Parameter(...)
-                Dim p As Parameter = fam.Parameter(BuiltInParameter.FAMILY_SHARED)
-                If p IsNot Nothing AndAlso p.StorageType = StorageType.Integer Then
-                    Return p.AsInteger() = 1
-                End If
-            Catch
-            End Try
-            Return False
-        End Function
-
-        Private Shared Function SafeParamName(p As Parameter) As String
-            Try
-                If p Is Nothing OrElse p.Definition Is Nothing Then Return ""
-                Return SafeStr(p.Definition.Name)
-            Catch
-                Return ""
-            End Try
-        End Function
-
-        Private Shared Function SafeParamTypeName(p As Parameter) As String
-            Try
-                If p Is Nothing OrElse p.Definition Is Nothing Then Return ""
-                Return p.Definition.ParameterType.ToString()
-            Catch
-                Return ""
-            End Try
-        End Function
-
-        Private Shared Function SafeGetParameterType(p As Parameter) As ParameterType
-            Try
-                If p Is Nothing OrElse p.Definition Is Nothing Then Return ParameterType.Invalid
-                Return p.Definition.ParameterType
-            Catch
-                Return ParameterType.Invalid
-            End Try
-        End Function
-
-        Private Shared Function SafeGetParameterType(fp As FamilyParameter) As ParameterType
-            Try
-                If fp Is Nothing OrElse fp.Definition Is Nothing Then Return ParameterType.Invalid
-                Return fp.Definition.ParameterType
-            Catch
-                Return ParameterType.Invalid
-            End Try
-        End Function
-
-        Private Shared Function SafeIsReporting(fp As FamilyParameter) As Boolean
-            Try
-                Return fp.IsReporting
-            Catch
-                Return False
-            End Try
-        End Function
-
-        Private Shared Function SafeGetFormula(fp As FamilyParameter) As String
-            Try
-                If fp.IsDeterminedByFormula Then
-                    Return fp.Formula
-                End If
-            Catch
-            End Try
-            Return ""
-        End Function
-
-        Private Shared Function SafeBoolToString(v As Boolean) As String
-            Return If(v, "True", "False")
-        End Function
-
         Private Shared Function SafeStr(s As String) As String
             Return If(s, "")
         End Function
@@ -771,9 +1073,10 @@ Namespace KKY_Tool_Revit
             Dim headers As String() = {
                 "ProjectPath",
                 "HostFamilyName", "HostFamilyCategory",
-                "NestedFamilyName", "NestedTypeName", "NestedCategory", "NestedIsShared",
-                "NestedParamScope", "NestedParamName", "NestedParamType",
-                "AssocHostParamName", "AssocHostParamIsInstance", "AssocHostParamIsShared", "AssocHostParamIsReporting", "AssocHostParamFormula",
+                "NestedFamilyName", "NestedTypeName", "NestedCategory",
+                "TargetParamName", "ExpectedGuid",
+                "FoundScope", "NestedParamGuid", "NestedParamDataType",
+                "AssocHostParamName", "HostParamGuid", "HostParamIsShared",
                 "Issue", "Notes"
             }
 
@@ -785,9 +1088,10 @@ Namespace KKY_Tool_Revit
                         Dim cols As New List(Of String) From {
                             r.ProjectPath,
                             r.HostFamilyName, r.HostFamilyCategory,
-                            r.NestedFamilyName, r.NestedTypeName, r.NestedCategory, r.NestedIsShared.ToString(),
-                            r.NestedParamScope, r.NestedParamName, r.NestedParamType,
-                            r.AssocHostParamName, r.AssocHostParamIsInstance, r.AssocHostParamIsShared, r.AssocHostParamIsReporting, r.AssocHostParamFormula,
+                            r.NestedFamilyName, r.NestedTypeName, r.NestedCategory,
+                            r.TargetParamName, r.ExpectedGuid,
+                            r.FoundScope, r.NestedParamGuid, r.NestedParamDataType,
+                            r.AssocHostParamName, r.HostParamGuid, r.HostParamIsShared,
                             r.Issue, r.Notes
                         }
                         sw.WriteLine(String.Join(",", cols.Select(Function(c) CsvEscape(c))))

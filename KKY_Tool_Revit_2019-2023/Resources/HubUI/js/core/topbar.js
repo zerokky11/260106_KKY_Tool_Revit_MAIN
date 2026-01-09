@@ -3,7 +3,7 @@ import { div, toast } from './dom.js';
 import { toggleTheme } from './theme.js';
 import { setConn, ping, post } from './bridge.js';
 
-export const APP_VERSION = 'v0.9.3';
+export const APP_VERSION = 'v0.9.5';
 
 let _docNameEl = null;
 let _docSelectEl = null;

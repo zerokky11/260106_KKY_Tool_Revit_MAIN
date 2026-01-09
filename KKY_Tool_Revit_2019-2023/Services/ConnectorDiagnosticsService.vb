@@ -30,15 +30,15 @@ Namespace Services
         End Class
 
         ' 3-인자: tolFt 는 피트 단위 (ft)
-        Public Shared Function Run(app As UIApplication, tolFt As Double, param As String) As List(Of Dictionary(Of String, Object))
-            Return Run(app, tolFt, param, CType(Nothing, IEnumerable(Of String)), Nothing, False)
+        Public Shared Function Run(app As UIApplication, tolFt As Double, param As String, Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
+            Return Run(app, tolFt, param, CType(Nothing, IEnumerable(Of String)), Nothing, False, progress)
         End Function
 
-        Public Shared Function Run(app As UIApplication, tolFt As Double, param As String, extraParams As IEnumerable(Of String)) As List(Of Dictionary(Of String, Object))
-            Return Run(app, tolFt, param, extraParams, Nothing, False)
+        Public Shared Function Run(app As UIApplication, tolFt As Double, param As String, extraParams As IEnumerable(Of String), Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
+            Return Run(app, tolFt, param, extraParams, Nothing, False, progress)
         End Function
 
-        Public Shared Function Run(app As UIApplication, tolFt As Double, param As String, extraParams As IEnumerable(Of String), targetFilter As String, excludeEndDummy As Boolean) As List(Of Dictionary(Of String, Object))
+        Public Shared Function Run(app As UIApplication, tolFt As Double, param As String, extraParams As IEnumerable(Of String), targetFilter As String, excludeEndDummy As Boolean, Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
             LastDebug = New List(Of String)()
             Dim rows As New List(Of Dictionary(Of String, Object))()
 
@@ -71,6 +71,9 @@ Namespace Services
                 elemConns(el.Id.IntegerValue) = GetConnectors(el)
             Next
 
+            Dim totalElem As Integer = Math.Max(1, elems.Count)
+            Dim lastSentPct As Double = -1
+
             ' 모든 커넥터 좌표 버킷 구성 (1ft 셀)
             Dim allConnPoints As New List(Of Tuple(Of Integer, XYZ, Connector))()
             For Each kv In elemConns
@@ -82,10 +85,15 @@ Namespace Services
             Log($"버킷 수: {buckets.Count}")
 
             ' 후보 비교 (Command 로직)
-            For Each el In elems
+            For i As Integer = 0 To elems.Count - 1
+                Dim el = elems(i)
                 Dim baseId = el.Id.IntegerValue
                 Dim conns = elemConns(baseId)
+                Dim connTotal As Integer = 1
+                If conns IsNot Nothing Then connTotal = Math.Max(1, conns.Count)
+                Dim j As Integer = 0
                 For Each c In conns
+                    j += 1
                     Dim found As Element = Nothing
                     Dim distFt As Double = 0
                     Dim connType As String = ""
@@ -177,8 +185,25 @@ Namespace Services
                         Dim row = BuildRow(el, found, distInch, connType, param, v1, v2, status, normalizedExtras, extras1, extras2)
                         rows.Add(row)
                     End If
+
+                    If progress IsNot Nothing Then
+                        Dim baseFrac As Double = CDbl(i) / CDbl(totalElem)
+                        Dim withinFrac As Double = (CDbl(j) / CDbl(connTotal)) / CDbl(totalElem)
+                        Dim overall As Double = baseFrac + withinFrac
+                        Dim pct As Double = Math.Round(overall * 1000.0R) / 10.0R
+                        If (i < totalElem - 1) OrElse (j < connTotal) Then
+                            If pct >= 100.0R Then pct = 99.9R
+                        End If
+                        If pct >= lastSentPct + 0.1R OrElse (i = totalElem - 1 AndAlso j = connTotal) Then
+                            lastSentPct = pct
+                            progress(pct, $"커넥터 진단 중... ({i + 1}/{totalElem})  커넥터 {j}/{connTotal}")
+                        End If
+                    End If
                 Next
             Next
+            If progress IsNot Nothing Then
+                progress(100.0R, "완료")
+            End If
 
             ' 정렬 및 샘플 로그
             rows = rows.OrderBy(Function(r) ToDouble(r("Distance (inch)"))) _
@@ -197,15 +222,15 @@ Namespace Services
         End Function
 
         ' 4-인자: tol 은 unit 기준(mm/inch/ft) → 내부에서 ft 로 환산 후 3-인자 호출
-        Public Shared Function Run(app As UIApplication, tol As Double, unit As String, paramName As String) As List(Of Dictionary(Of String, Object))
-            Return Run(app, tol, unit, paramName, CType(Nothing, IEnumerable(Of String)), Nothing, False)
+        Public Shared Function Run(app As UIApplication, tol As Double, unit As String, paramName As String, Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
+            Return Run(app, tol, unit, paramName, CType(Nothing, IEnumerable(Of String)), Nothing, False, progress)
         End Function
 
-        Public Shared Function Run(app As UIApplication, tol As Double, unit As String, paramName As String, extraParams As IEnumerable(Of String)) As List(Of Dictionary(Of String, Object))
-            Return Run(app, tol, unit, paramName, extraParams, Nothing, False)
+        Public Shared Function Run(app As UIApplication, tol As Double, unit As String, paramName As String, extraParams As IEnumerable(Of String), Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
+            Return Run(app, tol, unit, paramName, extraParams, Nothing, False, progress)
         End Function
 
-        Public Shared Function Run(app As UIApplication, tol As Double, unit As String, paramName As String, extraParams As IEnumerable(Of String), targetFilter As String, excludeEndDummy As Boolean) As List(Of Dictionary(Of String, Object))
+        Public Shared Function Run(app As UIApplication, tol As Double, unit As String, paramName As String, extraParams As IEnumerable(Of String), targetFilter As String, excludeEndDummy As Boolean, Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
             Dim tolFt As Double
             If String.Equals(unit, "mm", StringComparison.OrdinalIgnoreCase) Then
                 tolFt = tol / 304.8
@@ -214,7 +239,7 @@ Namespace Services
             Else
                 tolFt = tol ' ft 가정
             End If
-            Return Run(app, tolFt, paramName, extraParams, targetFilter, excludeEndDummy)
+            Return Run(app, tolFt, paramName, extraParams, targetFilter, excludeEndDummy, progress)
         End Function
 
         ' --------- 내부 유틸 ---------

@@ -56,6 +56,10 @@ Namespace UI.Hub
             End Try
         End Sub
 
+        Private Sub ReportConnectorProgress(pct As Double, text As String)
+            SendToWeb("connector:progress", New With {.pct = pct, .text = text})
+        End Sub
+
         Private Function SafePayloadSnapshot(payload As Object) As String
             If payload Is Nothing Then Return "(null)"
             Try
@@ -82,6 +86,7 @@ Namespace UI.Hub
             Try
                 LogDebug("[connector] HandleConnectorRun 진입")
                 LogDebug("[connector] payload 수신: " & SafePayloadSnapshot(payload))
+                ReportConnectorProgress(0.1R, "커넥터 진단 시작...")
 
                 Dim uidoc = app.ActiveUIDocument
                 Dim doc = If(uidoc Is Nothing, Nothing, uidoc.Document)
@@ -147,7 +152,7 @@ Namespace UI.Hub
                 Const PREVIEW_LIMIT As Integer = 150
                 Dim rows As List(Of Dictionary(Of String, Object)) = Nothing
                 Try
-                    rows = Services.ConnectorDiagnosticsService.Run(app, tolFt, param, _connectorExtraParams, _connectorTargetFilter, _connectorExcludeEndDummy)
+                    rows = Services.ConnectorDiagnosticsService.Run(app, tolFt, param, _connectorExtraParams, _connectorTargetFilter, _connectorExcludeEndDummy, AddressOf ReportConnectorProgress)
                 Catch ex As Exception
                     ' 네임스페이스 변동 대비 리플렉션 재시도
                     Try
@@ -158,7 +163,9 @@ Namespace UI.Hub
                             If m IsNot Nothing Then
                                 Dim args As Object()
                                 Dim ps = m.GetParameters()
-                                If ps.Length >= 6 Then
+                                If ps.Length >= 7 Then
+                                    args = New Object() {app, tolFt, param, _connectorExtraParams, _connectorTargetFilter, _connectorExcludeEndDummy, CType(AddressOf ReportConnectorProgress, Action(Of Double, String))}
+                                ElseIf ps.Length >= 6 Then
                                     args = New Object() {app, tolFt, param, _connectorExtraParams, _connectorTargetFilter, _connectorExcludeEndDummy}
                                 ElseIf ps.Length = 4 Then
                                     args = New Object() {app, tolFt, param, _connectorExtraParams}
@@ -249,6 +256,8 @@ Namespace UI.Hub
                 LogError("[connector] 검사 중 예외 발생: " & ex.ToString())
                 SendToWeb("connector:done", New With {.ok = False, .message = ex.Message})
                 SendToWeb("revit:error", New With {.message = "실행 실패: " & ex.Message})
+            Finally
+                ReportConnectorProgress(0R, String.Empty)
             End Try
         End Sub
 
