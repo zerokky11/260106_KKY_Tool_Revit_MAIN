@@ -71,13 +71,8 @@ Namespace Services
                 elemConns(el.Id.IntegerValue) = GetConnectors(el)
             Next
 
-            Dim totalConnectors As Integer = 0
-            For Each kv In elemConns
-                totalConnectors += If(kv.Value Is Nothing, 0, kv.Value.Count)
-            Next
-            totalConnectors = Math.Max(1, totalConnectors)
-            Dim processedConnectors As Integer = 0
-            Dim lastPct As Double = -1
+            Dim totalElem As Integer = Math.Max(1, elems.Count)
+            Dim lastSentPct As Double = -1
 
             ' 모든 커넥터 좌표 버킷 구성 (1ft 셀)
             Dim allConnPoints As New List(Of Tuple(Of Integer, XYZ, Connector))()
@@ -90,10 +85,15 @@ Namespace Services
             Log($"버킷 수: {buckets.Count}")
 
             ' 후보 비교 (Command 로직)
-            For Each el In elems
+            For i As Integer = 0 To elems.Count - 1
+                Dim el = elems(i)
                 Dim baseId = el.Id.IntegerValue
                 Dim conns = elemConns(baseId)
+                Dim connTotal As Integer = 1
+                If conns IsNot Nothing Then connTotal = Math.Max(1, conns.Count)
+                Dim j As Integer = 0
                 For Each c In conns
+                    j += 1
                     Dim found As Element = Nothing
                     Dim distFt As Double = 0
                     Dim connType As String = ""
@@ -186,16 +186,24 @@ Namespace Services
                         rows.Add(row)
                     End If
 
-                    processedConnectors += 1
                     If progress IsNot Nothing Then
-                        Dim pct As Double = Math.Round((CDbl(processedConnectors) / CDbl(totalConnectors)) * 1000.0R) / 10.0R
-                        If pct >= lastPct + 0.2R OrElse processedConnectors = totalConnectors Then
-                            lastPct = pct
-                            progress(pct, $"커넥터 진단 중... ({processedConnectors}/{totalConnectors})")
+                        Dim baseFrac As Double = CDbl(i) / CDbl(totalElem)
+                        Dim withinFrac As Double = (CDbl(j) / CDbl(connTotal)) / CDbl(totalElem)
+                        Dim overall As Double = baseFrac + withinFrac
+                        Dim pct As Double = Math.Round(overall * 1000.0R) / 10.0R
+                        If (i < totalElem - 1) OrElse (j < connTotal) Then
+                            If pct >= 100.0R Then pct = 99.9R
+                        End If
+                        If pct >= lastSentPct + 0.1R OrElse (i = totalElem - 1 AndAlso j = connTotal) Then
+                            lastSentPct = pct
+                            progress(pct, $"커넥터 진단 중... ({i + 1}/{totalElem})  커넥터 {j}/{connTotal}")
                         End If
                     End If
                 Next
             Next
+            If progress IsNot Nothing Then
+                progress(100.0R, "완료")
+            End If
 
             ' 정렬 및 샘플 로그
             rows = rows.OrderBy(Function(r) ToDouble(r("Distance (inch)"))) _
