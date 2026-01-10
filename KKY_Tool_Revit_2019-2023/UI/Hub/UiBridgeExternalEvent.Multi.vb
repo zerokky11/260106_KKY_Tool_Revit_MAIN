@@ -834,13 +834,6 @@ NextItem:
             Return res
         End Function
 
-        Private Shared Function GetDictValue(dict As Dictionary(Of String, Object), key As String) As Object
-            If dict Is Nothing Then Return Nothing
-            Dim val As Object = Nothing
-            If dict.TryGetValue(key, val) Then Return val
-            Return Nothing
-        End Function
-
         Private Shared Function ExtractStringList(dict As Dictionary(Of String, Object), key As String) As List(Of String)
             Dim list As New List(Of String)()
             Dim raw = GetDictValue(dict, key)
@@ -857,10 +850,6 @@ NextItem:
                 If Not String.IsNullOrWhiteSpace(s) Then list.Add(s)
             End If
             Return list
-        End Function
-
-        Private Shared Function SafeStr(obj As Object) As String
-            Return If(obj, String.Empty).ToString()
         End Function
 
         Private Shared Function ToBool(obj As Object, Optional defaultValue As Boolean = False) As Boolean
