@@ -135,6 +135,7 @@
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.SegmentPms.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.ParamProp.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.FamilyLinkAudit.vb" />
+		<Compile Include="UI\Hub\UiBridgeExternalEvent.Multi.vb" />
 		<Compile Include="UI\Hub\UiBridgeExternalEvent.Core.vb" />
 		<Compile Include="UI\Hub\HubHostWindow.vb" />
 	</ItemGroup>

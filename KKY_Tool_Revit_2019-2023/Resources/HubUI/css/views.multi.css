@@ -1,0 +1,139 @@
+.multi-page {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.multi-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.multi-header h2 {
+    margin: 0 0 6px;
+}
+
+.multi-section {
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 16px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.multi-section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.multi-toggle-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(15, 23, 42, 0.75);
+}
+
+.multi-toggle-row.is-active {
+    border-color: rgba(56, 189, 248, 0.5);
+    background: rgba(30, 41, 59, 0.85);
+}
+
+.multi-toggle-meta h4 {
+    margin: 0 0 4px;
+    font-size: 1rem;
+}
+
+.multi-toggle-meta p {
+    margin: 0;
+    color: #cbd5f5;
+    font-size: 0.85rem;
+}
+
+.multi-toggle-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.multi-config {
+    display: none;
+    padding: 12px 12px 4px;
+    border-left: 2px solid rgba(56, 189, 248, 0.35);
+    margin-left: 6px;
+    gap: 10px;
+}
+
+.multi-config.is-open {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.multi-config .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.85rem;
+}
+
+.multi-config .field input,
+.multi-config .field select,
+.multi-config .field textarea {
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    color: inherit;
+    border-radius: 8px;
+    padding: 6px 8px;
+}
+
+.multi-config textarea {
+    min-height: 58px;
+    resize: vertical;
+}
+
+.multi-param-list {
+    max-height: 180px;
+    overflow: auto;
+    padding-right: 4px;
+    display: grid;
+    gap: 6px;
+}
+
+.multi-group-options {
+    background: rgba(30, 41, 59, 0.8);
+    border-radius: 12px;
+    padding: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.multi-rvt-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.multi-rvt-summary {
+    font-size: 0.85rem;
+    color: #cbd5f5;
+}
+
+.multi-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-top: 6px;
+}
+
+.multi-start-btn {
+    padding: 10px 18px;
+}

@@ -160,6 +160,11 @@ Namespace UI.Hub
             map.Add("familylink:pick-rvts", "HandleFamilyLinkPickRvts")
             map.Add("familylink:run", "HandleFamilyLinkRun")
             map.Add("familylink:export", "HandleFamilyLinkExport")
+            ' Multi RVT Hub
+            map.Add("hub:pick-rvt", "HandleMultiPickRvt")
+            map.Add("hub:multi-run", "HandleMultiRun")
+            map.Add("hub:multi-export", "HandleMultiExport")
+            map.Add("hub:multi-clear", "HandleMultiClear")
 
             Dim methodName As String = Nothing
             If Not map.TryGetValue(name, methodName) Then

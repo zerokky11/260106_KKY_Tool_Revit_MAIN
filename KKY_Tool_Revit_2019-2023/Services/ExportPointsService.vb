@@ -91,6 +91,21 @@ Namespace Services
             Return list
         End Function
 
+        Public Shared Function RunOnDocument(doc As Document, fileName As String, Optional progress As Action(Of ProgressInfo) = Nothing) As IList(Of Row)
+            Dim list As New List(Of Row)()
+            If doc Is Nothing Then Return list
+            Dim row As New Row() With {.File = If(String.IsNullOrWhiteSpace(fileName), doc.Title, fileName)}
+            Try
+                ReportProgress(progress, "EXTRACT", $"포인트 추출: {row.File}", 0, 1, 0.0)
+                Extract(doc, row)
+                list.Add(row)
+                ReportProgress(progress, "DONE", "포인트 추출 완료", 1, 1, 1.0)
+            Catch
+                ReportProgress(progress, "ERROR", "포인트 추출 실패", 0, 1, 1.0)
+            End Try
+            Return list
+        End Function
+
         Public Shared Function ExportToExcel(uiapp As UIApplication, files As Object, Optional unit As String = "ft", Optional doAutoFit As Boolean = False) As String
             Dim rows = Run(uiapp, files)
 

@@ -133,6 +133,50 @@ Namespace Services
             Return rows
         End Function
 
+        Public Shared Function RunOnDocument(doc As Document,
+                                             rvtPath As String,
+                                             targets As IList(Of FamilyLinkTargetParam),
+                                             progress As Action(Of Integer, String)) As List(Of FamilyLinkAuditRow)
+            Dim rows As New List(Of FamilyLinkAuditRow)()
+            If doc Is Nothing Then Return rows
+
+            Dim targetMap As Dictionary(Of String, FamilyLinkTargetParam) = BuildTargetMap(targets)
+            If targetMap.Count = 0 Then Return rows
+
+            Dim fileName As String = SafeFileName(rvtPath)
+            Try
+                Dim hostFamilies As List(Of Family) =
+                    New FilteredElementCollector(doc).
+                        OfClass(GetType(Family)).
+                        Cast(Of Family)().
+                        Where(Function(f) f IsNot Nothing AndAlso f.IsEditable AndAlso Not f.IsInPlace).
+                        ToList()
+
+                Dim famTotal As Integer = hostFamilies.Count
+                If famTotal = 0 Then
+                    ReportProgress(progress, 1, 1, 1.0R, $"{fileName}: 편집 가능한 패밀리가 없습니다.")
+                    Return rows
+                End If
+
+                For fi As Integer = 0 To famTotal - 1
+                    Dim fam As Family = hostFamilies(fi)
+                    Dim frac As Double = 0.05R + 0.9R * SafeRatio(fi + 1, famTotal)
+                    ReportProgress(progress, 1, 1, frac, $"[{fileName}] 패밀리 검사 중 ({fi + 1}/{famTotal})")
+                    AuditFamilyAsHost(doc, fam, fileName, targetMap, rows)
+                Next
+
+                ReportProgress(progress, 1, 1, 1.0R, $"완료: {fileName}")
+            Catch ex As Exception
+                rows.Add(New FamilyLinkAuditRow With {
+                    .FileName = fileName,
+                    .Issue = FamilyLinkAuditIssue.[Error].ToString(),
+                    .Notes = $"Project scan error: {ex.Message}"
+                })
+            End Try
+
+            Return rows
+        End Function
+
         Private Shared Sub AuditFamilyAsHost(hostDoc As Document,
                                              hostFamily As Family,
                                              fileName As String,

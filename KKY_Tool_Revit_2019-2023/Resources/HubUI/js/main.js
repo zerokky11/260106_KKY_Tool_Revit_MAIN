@@ -10,6 +10,7 @@ import { renderParamProp } from './views/paramprop.js';
 import { renderSegmentPms } from './views/segmentpms.js';
 import { renderGuid } from './views/guid.js';
 import { renderFamilyLink } from './views/familylink.js';
+import { renderMulti } from './views/multi.js';
 
 initTheme();
 
@@ -97,6 +98,7 @@ function route() {
         case 'segmentpms': return renderSegmentPms(targetRoot);
         case 'guid': return renderGuid(targetRoot);
         case 'familylink': return renderFamilyLink(targetRoot);
+        case 'multi': return renderMulti(targetRoot);
         default: return renderHome(targetRoot);
     }
 }

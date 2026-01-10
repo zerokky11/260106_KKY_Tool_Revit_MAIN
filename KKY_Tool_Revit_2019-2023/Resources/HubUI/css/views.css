@@ -419,3 +419,79 @@
        여기서는 전역 레이아웃만 약하게 맞춰줌 */
     margin-top: 4px;
 }
+
+/* -----------------------------
+   홈 선택 카드
+   ----------------------------- */
+
+.home-choice {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding: 24px 12px 12px;
+}
+
+.home-choice-hero {
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95));
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 18px;
+    padding: 20px 22px;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.6);
+}
+
+.home-choice-hero h2 {
+    margin: 6px 0 8px;
+    font-size: 1.6rem;
+}
+
+.home-choice-kicker {
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #94a3b8;
+    margin: 0;
+}
+
+.home-choice-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+}
+
+.home-choice-card {
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    background: rgba(15, 23, 42, 0.85);
+    color: inherit;
+    border-radius: 16px;
+    padding: 18px 18px 16px;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 160px;
+}
+
+.home-choice-card h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.home-choice-card p {
+    margin: 0;
+    color: #cbd5f5;
+    line-height: 1.5;
+}
+
+.home-choice-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(56, 189, 248, 0.6);
+    box-shadow: 0 16px 30px rgba(15, 23, 42, 0.45);
+}
+
+.home-choice-cta {
+    margin-top: auto;
+    font-size: 0.85rem;
+    color: #38bdf8;
+}
