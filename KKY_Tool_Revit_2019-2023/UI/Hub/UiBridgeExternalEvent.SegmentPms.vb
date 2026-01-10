@@ -546,7 +546,7 @@ Namespace UI.Hub
             Dim pipeSet As New HashSet(Of Tuple(Of String, String))(TupleComparer())
             For Each r As DataRow In rules.Rows
                 fileSet.Add(NormalizePath(SafeStr(r("File"))))
-                pipeSet.Add(Tuple.Create(SafeStr(r("File")), SafeStr(r("PipeTypeName"))))
+                pipeSet.Add(Tuple.Create(Of String, String)(SafeStr(r("File")), SafeStr(r("PipeTypeName"))))
             Next
             Dim sizeCount As Integer = 0
             If sizes IsNot Nothing Then
@@ -834,6 +834,24 @@ Namespace UI.Hub
             Catch
                 Return p
             End Try
+        End Function
+
+        Private Shared Function GetDictValue(dict As Dictionary(Of String, Object), key As String) As Object
+            If dict Is Nothing OrElse String.IsNullOrWhiteSpace(key) Then
+                Return Nothing
+            End If
+            Dim v As Object = Nothing
+            If dict.TryGetValue(key, v) Then
+                Return v
+            End If
+            Return Nothing
+        End Function
+
+        Private Shared Function SafeStr(o As Object) As String
+            If o Is Nothing OrElse o Is DBNull.Value Then
+                Return String.Empty
+            End If
+            Return Convert.ToString(o)
         End Function
 
         Private Shared Function SegPmsSafeStr(o As Object) As String

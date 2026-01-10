@@ -190,34 +190,34 @@ Namespace UI.Hub
         End Sub
 
         Private Sub ProcessMultiNext(app As UIApplication)
-            Dim path As String = Nothing
+            Dim filePath As String = Nothing
             SyncLock _multiLock
                 If _multiQueue IsNot Nothing AndAlso _multiQueue.Count > 0 Then
-                    path = _multiQueue.Dequeue()
+                    filePath = _multiQueue.Dequeue()
                     _multiIndex += 1
                 End If
             End SyncLock
 
-            If String.IsNullOrWhiteSpace(path) Then
+            If String.IsNullOrWhiteSpace(filePath) Then
                 FinishMultiRun()
                 Return
             End If
 
-            Dim safeName As String = Path.GetFileName(path)
+            Dim safeName As String = System.IO.Path.GetFileName(filePath)
             Dim basePct As Double = If(_multiTotal > 0, CDbl(_multiIndex - 1) / CDbl(_multiTotal), 0.0R)
             ReportMultiProgress(basePct * 100.0R, "파일 여는 중", safeName)
 
             Dim doc As Document = Nothing
             Try
-                If Not File.Exists(path) Then
+                If Not System.IO.File.Exists(filePath) Then
                     ReportMultiProgress(basePct * 100.0R, "파일을 찾을 수 없습니다.", safeName)
                     GoTo NextItem
                 End If
 
-                Dim mp = ModelPathUtils.ConvertUserVisiblePathToModelPath(path)
+                Dim mp = ModelPathUtils.ConvertUserVisiblePathToModelPath(filePath)
                 doc = app.Application.OpenDocumentFile(mp, BuildOpenOptions())
 
-                RunMultiForDocument(app, doc, path, safeName, basePct)
+                RunMultiForDocument(app, doc, filePath, safeName, basePct)
             Catch ex As Exception
                 SendToWeb("hub:multi-error", New With {.message = $"파일 처리 실패: {safeName} - {ex.Message}"})
             Finally
