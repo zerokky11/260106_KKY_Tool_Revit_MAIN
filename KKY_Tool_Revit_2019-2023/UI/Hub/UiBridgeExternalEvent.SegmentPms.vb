@@ -117,17 +117,6 @@ Namespace UI.Hub
             Return opts
         End Function
 
-        Private Shared Function GetDictValue(dict As Dictionary(Of String, Object), key As String) As Object
-            If dict Is Nothing Then
-                Return Nothing
-            End If
-            Dim val As Object = Nothing
-            If dict.TryGetValue(key, val) Then
-                Return val
-            End If
-            Return Nothing
-        End Function
-
         Private Shared Function ParseCompareOptions(payload As Dictionary(Of String, Object)) As SegmentPmsCheckService.CompareOptions
             Dim opts As New SegmentPmsCheckService.CompareOptions()
             If payload Is Nothing Then
@@ -845,13 +834,6 @@ Namespace UI.Hub
             Catch
                 Return p
             End Try
-        End Function
-
-        Private Shared Function SafeStr(o As Object) As String
-            If o Is Nothing Then
-                Return String.Empty
-            End If
-            Return o.ToString()
         End Function
 
         Private Shared Function SegPmsSafeStr(o As Object) As String

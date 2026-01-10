@@ -175,7 +175,7 @@ Namespace UI.Hub
             ReportMultiProgress(0.0R, "배치 검토 시작", $"{req.RvtPaths.Count}개 파일 준비")
         End Sub
 
-        Private Sub HandleMultiIdling(sender As Object, e As IdlingEventArgs)
+        Private Sub HandleMultiIdling(sender As Object, e As Autodesk.Revit.UI.Events.IdlingEventArgs)
             Dim shouldRun As Boolean = False
             SyncLock _multiLock
                 shouldRun = _multiActive AndAlso _multiPending AndAlso Not _multiBusy
