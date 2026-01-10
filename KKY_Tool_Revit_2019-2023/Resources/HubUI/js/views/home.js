@@ -2,7 +2,7 @@
 import { clear, div, debounce, toast } from '../core/dom.js';
 import { getFavs, toggleFav, getLast, saveCardOrder, getCardOrder } from '../core/state.js';
 
-const CATS = { dup: '검토', conn: '진단', export: '좌표', paramprop: '속성', segmentpms: '속성', guid: '속성' };
+const CATS = { dup: '검토', conn: '진단', export: '좌표', paramprop: '속성', segmentpms: '속성', guid: '속성', familylink: '속성' };
 const QKEY = 'kky_q';
 const LAYOUT_KEY = 'kky_home_layout';
 const CAT_KEY = 'kky_home_cat';
@@ -12,16 +12,18 @@ const GROUPS = {
     all: { icon: '●', label: '전체' },
     modeling: { icon: '▣', label: '모델링 검토' },
     property: { icon: '◆', label: '속성 검토' },
-    utility: { icon: '▲', label: '유틸리티' }
+    utility: { icon: '▲', label: '유틸리티' },
+    family: { icon: '▩', label: '패밀리' }
 };
 
 const CARD_GROUP = {
     dup: 'modeling',
     conn: 'property',
     export: 'utility',
-    paramprop: 'property',
+    paramprop: 'family',
     segmentpms: 'property',
-    guid: 'property'
+    guid: 'utility',
+    familylink: 'family'
 };
 
 const FEATURE_META = {
@@ -60,6 +62,12 @@ const FEATURE_META = {
         title: 'GUID Audit',
         subtitle: 'Shared Parameter GUID Checker',
         desc: '프로젝트/패밀리 파라미터 GUID를 공유 파라미터 파일과 비교하여 불일치를 찾습니다.'
+    },
+    familylink: {
+        icon: 'paramprop',
+        title: '패밀리 연동 검토',
+        subtitle: 'Nested Family Association Audit',
+        desc: '복합 패밀리의 네스티드 파라미터 연동 상태를 Shared GUID 기준으로 검토합니다.'
     }
 };
 
