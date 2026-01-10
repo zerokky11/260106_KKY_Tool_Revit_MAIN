@@ -72,8 +72,8 @@ export function renderFamilyLink(root) {
   paramCard.append(paramTitle);
 
   const sourceLine = div('familylink-source');
-  sourceLine.textContent = 'Shared Parameters: -';
-  paramCard.append(sourceLine);
+ 
+
 
   const searchRow = div('paramprop-row paramprop-search-row');
   const searchBox = document.createElement('input');
@@ -196,7 +196,7 @@ export function renderFamilyLink(root) {
     state.search = '';
     searchBox.value = '';
 
-    sourceLine.textContent = payload?.sourcePath ? `Shared Parameters: ${payload.sourcePath}` : 'Shared Parameters: -';
+   
 
     renderGroups();
     renderParamTable();

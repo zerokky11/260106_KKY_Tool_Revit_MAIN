@@ -379,9 +379,11 @@ Namespace Services
             Try
                 Dim isShared As Boolean = False
                 Dim isSharedKnown As Boolean = TryGetParameterIsShared(p, isShared)
+
                 If isSharedKnown AndAlso isShared Then
                     Dim t As Type = p.GetType()
-                    Dim propGuid As Reflection.PropertyInfo = t.GetProperty("GUID")
+
+                    Dim propGuid As System.Reflection.PropertyInfo = t.GetProperty("GUID")
                     If propGuid Is Nothing Then propGuid = t.GetProperty("Guid")
 
                     If propGuid IsNot Nothing Then
@@ -392,6 +394,9 @@ Namespace Services
                         End If
                     End If
                 End If
+
+            Catch
+                ' Reflection/특이 케이스는 무시하고 폴백으로 진행
             End Try
 
             Return TryGetDefinitionGuid(p.Definition, guid)

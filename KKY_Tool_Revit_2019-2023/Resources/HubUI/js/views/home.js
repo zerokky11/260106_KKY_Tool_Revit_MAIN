@@ -12,17 +12,18 @@ const GROUPS = {
     all: { icon: '●', label: '전체' },
     modeling: { icon: '▣', label: '모델링 검토' },
     property: { icon: '◆', label: '속성 검토' },
-    utility: { icon: '▲', label: '유틸리티' }
+    utility: { icon: '▲', label: '유틸리티' },
+    family: { icon: '▩', label: '패밀리' }
 };
 
 const CARD_GROUP = {
     dup: 'modeling',
     conn: 'property',
     export: 'utility',
-    paramprop: 'property',
+    paramprop: 'family',
     segmentpms: 'property',
-    guid: 'property',
-    familylink: 'property'
+    guid: 'utility',
+    familylink: 'family'
 };
 
 const FEATURE_META = {
