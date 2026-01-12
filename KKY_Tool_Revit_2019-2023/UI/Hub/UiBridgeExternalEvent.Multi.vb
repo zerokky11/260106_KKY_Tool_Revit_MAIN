@@ -376,13 +376,37 @@ NextItem:
         End Sub
 
         Private Sub ExportConnector(doAutoFit As Boolean)
-            If _multiConnectorRows Is Nothing OrElse _multiConnectorRows.Count = 0 Then
+            Dim rows = If(_multiConnectorRows, New List(Of Dictionary(Of String, Object))())
+            Dim allFiles As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            If _multiRequest IsNot Nothing AndAlso _multiRequest.RvtPaths IsNot Nothing Then
+                For Each path In _multiRequest.RvtPaths
+                    Dim name = System.IO.Path.GetFileName(TryCast(path, String))
+                    If Not String.IsNullOrWhiteSpace(name) Then allFiles.Add(name)
+                Next
+            End If
+            If rows.Count = 0 AndAlso allFiles.Count = 0 Then
                 SendToWeb("hub:multi-exported", New With {.ok = False, .message = "커넥터 결과가 없습니다."})
                 Return
             End If
+
+            Dim existingFiles As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            For Each row In rows
+                If row IsNot Nothing AndAlso row.ContainsKey("File") AndAlso row("File") IsNot Nothing Then
+                    existingFiles.Add(row("File").ToString())
+                End If
+            Next
+            For Each fileName In allFiles
+                If Not existingFiles.Contains(fileName) Then
+                    rows.Add(New Dictionary(Of String, Object) From {
+                        {"File", fileName},
+                        {"Status", "오류 없음"}
+                    })
+                End If
+            Next
+
             Dim extras = If(_multiConnectorExtras, New List(Of String)())
             Dim headers As List(Of String) = BuildConnectorHeaders(extras)
-            Dim table = BuildTableFromRows(headers, _multiConnectorRows)
+            Dim table = BuildTableFromRows(headers, rows)
             If Not ValidateSchema(table, headers) Then Throw New InvalidOperationException("스키마 검증 실패: 커넥터")
             Dim saved = ExcelCore.PickAndSaveXlsx("Connector Diagnostics", table, $"Connector_{Date.Now:yyyyMMdd_HHmm}.xlsx", doAutoFit, "hub:multi-progress")
             If String.IsNullOrWhiteSpace(saved) Then

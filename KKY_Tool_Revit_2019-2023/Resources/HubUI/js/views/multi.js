@@ -30,7 +30,8 @@ export function renderMulti(root) {
       modalOpen: false,
       activeFeatureKey: '',
       activeFeatureTitle: '',
-      panels: {}
+      panels: {},
+      lastProgressPct: 0
     }
   };
 
@@ -90,11 +91,18 @@ export function renderMulti(root) {
   onHost('hub:multi-progress', (payload) => {
     const basePct = Number(payload?.percent);
     const altPct = Number(payload?.phaseProgress);
-    const pctValue = Number.isFinite(basePct) ? basePct : (Number.isFinite(altPct) ? altPct * 100 : 0);
+    const hasBase = Number.isFinite(basePct);
+    const hasAlt = Number.isFinite(altPct);
+    const pctValue = hasBase ? basePct : (hasAlt ? altPct * 100 : state.ui.lastProgressPct);
     const pct = Math.max(0, Math.min(100, pctValue));
+    state.ui.lastProgressPct = pct;
+    const phase = String(payload?.phase || payload?.Phase || '').toLowerCase();
     ProgressDialog.show(payload?.title || '다중 RVT 검토', payload?.message || '');
     ProgressDialog.update(pct, payload?.message || '', payload?.detail || '');
     updateRunProgress(pct, payload?.message || '', payload?.detail || '');
+    if (phase === 'done' || pct >= 100) {
+      setTimeout(() => ProgressDialog.hide(), 200);
+    }
   });
 
   onHost('hub:multi-done', (payload) => {
@@ -114,6 +122,8 @@ export function renderMulti(root) {
 
   onHost('hub:multi-exported', (payload) => {
     setBusyState(false);
+    ProgressDialog.hide();
+    state.ui.lastProgressPct = 0;
     const path = payload?.path;
     if (path) {
       showExcelSavedDialog('엑셀 저장 완료', path, (p) => post('excel:open', { path: p }));
