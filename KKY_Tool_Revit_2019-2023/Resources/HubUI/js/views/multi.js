@@ -3,7 +3,7 @@ import { ProgressDialog } from '../core/progress.js';
 import { post, onHost } from '../core/bridge.js';
 import { createRvtTable, renderRvtRows, getRvtName } from './rvtTable.js';
 
-const FEATURE_KEYS = ['connector', 'pms', 'guid', 'paramprop', 'familylink', 'points'];
+const FEATURE_KEYS = ['connector', 'guid', 'points'];
 
 export function renderMulti(root) {
   const target = root || document.getElementById('view-root') || document.getElementById('app');
@@ -22,16 +22,10 @@ export function renderMulti(root) {
     },
     features: {
       connector: { enabled: false, tol: 1.0, unit: 'inch', param: 'Comments' },
-      pms: { enabled: false, ndRound: 3, tolMm: 0.01, classMatch: false, pmsReady: false },
       guid: { enabled: false, includeFamily: false, includeAnnotation: false },
-      paramprop: { enabled: false, paramNames: [], group: '', isInstance: true, excludeDummy: false, ready: false },
-      familylink: { enabled: false, targets: [], ready: false },
       points: { enabled: false, unit: 'ft' }
     },
     results: {},
-    sharedParams: [],
-    paramGroups: [],
-    familyParams: [],
     ui: {
       modalOpen: false,
       activeFeatureKey: '',
@@ -65,10 +59,8 @@ export function renderMulti(root) {
   const group1Options = buildGroup1Options();
   group1.section.append(group1Options);
   group1.section.append(buildToggleRow('connector', '커넥터 진단', 'Parameter 값 연속성 검토', buildConnectorConfig()));
-  group2.section.append(buildToggleRow('pms', 'PMS 검토', 'Segment ↔ PMS 매핑 및 사이즈 검토', buildPmsConfig()));
+  group2.section.append(buildPmsWorkflowRow());
   group2.section.append(buildToggleRow('guid', 'GUID 검토', '공유 파라미터 GUID 불일치 검토', buildGuidConfig()));
-  group2.section.append(buildToggleRow('paramprop', '파라미터 연동검토', '공유 파라미터 추가 및 연동', buildParamPropConfig()));
-  group3.section.append(buildToggleRow('familylink', '공유 파라미터 추가 및 연동', '네스티드 패밀리 연동 검토', buildFamilyLinkConfig()));
   group3.section.append(buildToggleRow('points', 'Point 추출', 'Project/Survey Point 좌표 추출', buildPointsConfig()));
 
   leftCol.append(group1.wrap, group2.wrap, group3.wrap);
@@ -129,29 +121,6 @@ export function renderMulti(root) {
       toast(payload?.message || '엑셀 저장에 실패했습니다.', 'err');
     }
   });
-
-  onHost('segmentpms:pms-registered', (payload) => {
-    state.features.pms.pmsReady = !!payload?.path;
-    syncFeatureRow('pms');
-    updateFeatureSummary('pms');
-    updateDrawerBadge('pms');
-  });
-
-  onHost('sharedparam:list', (payload) => {
-    state.sharedParams = Array.isArray(payload?.definitions) ? payload.definitions : [];
-    state.paramGroups = Array.isArray(payload?.targetGroups) ? payload.targetGroups : [];
-    state.features.paramprop.ready = state.sharedParams.length > 0;
-    repaintParamPropOptions();
-  });
-
-  onHost('familylink:sharedparams', (payload) => {
-    state.familyParams = Array.isArray(payload?.items) ? payload.items : [];
-    state.features.familylink.ready = state.familyParams.length > 0;
-    repaintFamilyLinkOptions();
-  });
-
-  post('sharedparam:list', {});
-  post('familylink:init', {});
 
   function buildGroupSection(title, desc) {
     const wrap = div('multi-section');
@@ -273,6 +242,39 @@ export function renderMulti(root) {
     return row;
   }
 
+  function buildPmsWorkflowRow() {
+    const row = div('feature-row feature-row--workflow');
+    const header = div('feature-row__header');
+    const left = div('feature-row__left');
+    const icon = document.createElement('span');
+    icon.className = 'feature-row__icon';
+    icon.textContent = 'PMS';
+    const title = document.createElement('strong');
+    title.textContent = 'PMS 검토';
+    const desc = document.createElement('span');
+    desc.textContent = 'Segment ↔ PMS 매핑 및 사이즈 검토 (워크플로우)';
+    left.append(icon, title, desc);
+
+    const right = div('feature-row__right');
+    const chip = document.createElement('span');
+    chip.className = 'chip chip--info';
+    chip.textContent = '별도 워크플로우';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn--secondary';
+    btn.textContent = 'PMS 워크플로우 열기';
+    btn.addEventListener('click', () => {
+      location.hash = '#segmentpms';
+    });
+    right.append(chip, btn);
+
+    const summary = div('feature-row__summary');
+    summary.textContent = '추출 → PMS 등록 → 매핑 준비 → 비교 실행 → 결과 내보내기';
+    header.append(left, right);
+    row.append(header, summary);
+    return row;
+  }
+
   function buildConnectorConfig() {
     const panel = div('multi-config');
     const tol = makeField('허용범위', 'tol', '', 'number');
@@ -303,38 +305,6 @@ export function renderMulti(root) {
     return { panel };
   }
 
-  function buildPmsConfig() {
-    const panel = div('multi-config');
-    const ndRound = makeField('ND Round', 'ndRound', '3', 'number');
-    ndRound.input.value = state.features.pms.ndRound;
-    ndRound.input.addEventListener('change', () => {
-      state.features.pms.ndRound = parseInt(ndRound.input.value || '3', 10) || 3;
-      markStale('pms');
-    });
-    const tol = makeField('허용오차(mm)', 'tolMm', '0.01', 'number');
-    tol.input.value = state.features.pms.tolMm;
-    tol.input.addEventListener('change', () => {
-      state.features.pms.tolMm = parseFloat(tol.input.value || '0.01') || 0.01;
-      markStale('pms');
-    });
-    const classMatch = makeCheckboxField('Class 일치 여부 적용');
-    classMatch.input.checked = state.features.pms.classMatch;
-    classMatch.input.addEventListener('change', () => {
-      state.features.pms.classMatch = classMatch.input.checked;
-      markStale('pms');
-    });
-    const pmsBtn = document.createElement('button');
-    pmsBtn.type = 'button';
-    pmsBtn.className = 'btn btn--secondary';
-    pmsBtn.textContent = 'PMS Excel 등록';
-    pmsBtn.addEventListener('click', () => post('segmentpms:register-pms', { unit: 'mm' }));
-    const pmsField = div('field');
-    pmsField.append(document.createTextNode('PMS 파일'));
-    pmsField.append(pmsBtn);
-    panel.append(ndRound.field, tol.field, classMatch.field, pmsField);
-    return { panel };
-  }
-
   function buildGuidConfig() {
     const panel = div('multi-config');
     const includeFamily = makeCheckboxField('패밀리 포함');
@@ -350,118 +320,6 @@ export function renderMulti(root) {
       markStale('guid');
     });
     panel.append(includeFamily.field, includeAnno.field);
-    return { panel };
-  }
-
-  function buildParamPropConfig() {
-    const panel = div('multi-config');
-    const groupSelect = makeSelectField('타겟 그룹', []);
-    const list = document.createElement('div');
-    list.className = 'checklist';
-    panel.append(groupSelect.field, list);
-
-    groupSelect.select.addEventListener('change', () => {
-      state.features.paramprop.group = groupSelect.select.value;
-      markStale('paramprop');
-    });
-
-    const instance = makeCheckboxField('인스턴스 파라미터로 추가');
-    instance.input.checked = state.features.paramprop.isInstance;
-    instance.input.addEventListener('change', () => {
-      state.features.paramprop.isInstance = instance.input.checked;
-      markStale('paramprop');
-    });
-
-    const exclude = makeCheckboxField('End_ + Dummy 패밀리 제외');
-    exclude.input.checked = state.features.paramprop.excludeDummy;
-    exclude.input.addEventListener('change', () => {
-      state.features.paramprop.excludeDummy = exclude.input.checked;
-      markStale('paramprop');
-    });
-
-    panel.append(instance.field, exclude.field);
-
-    function repaint() {
-      groupSelect.select.innerHTML = '';
-      state.paramGroups.forEach((g) => {
-        const opt = document.createElement('option');
-        opt.value = g.id;
-        opt.textContent = g.name;
-        groupSelect.select.append(opt);
-      });
-      if (!state.features.paramprop.group && state.paramGroups.length) {
-        state.features.paramprop.group = state.paramGroups[0].id;
-        groupSelect.select.value = state.features.paramprop.group;
-      }
-      list.innerHTML = '';
-      if (!state.sharedParams.length) {
-        list.append(createEmptyState(
-          'Shared Parameter 텍스트가 등록되어 있지 않습니다.',
-          '새로고침',
-          () => post('sharedparam:list', {})
-        ));
-        updateFeatureSummary('paramprop');
-        return;
-      }
-      state.sharedParams.forEach((p) => {
-        const item = document.createElement('label');
-        item.className = 'check-item';
-        const input = document.createElement('input');
-        input.type = 'checkbox';
-        input.checked = state.features.paramprop.paramNames.includes(p.name);
-        input.addEventListener('change', () => {
-          toggleListValue(state.features.paramprop.paramNames, p.name, input.checked);
-          markStale('paramprop');
-        });
-        const text = document.createElement('span');
-        text.textContent = p.name;
-        item.append(input, text);
-        list.append(item);
-      });
-      updateFeatureSummary('paramprop');
-    }
-
-    buildParamPropConfig.repaint = repaint;
-    return { panel };
-  }
-
-  function buildFamilyLinkConfig() {
-    const panel = div('multi-config');
-    const list = document.createElement('div');
-    list.className = 'checklist';
-    panel.append(list);
-
-    function repaint() {
-      list.innerHTML = '';
-      if (!state.familyParams.length) {
-        list.append(createEmptyState(
-          'Shared Parameter 텍스트가 등록되어 있지 않습니다.',
-          '새로고침',
-          () => post('familylink:init', {})
-        ));
-        updateFeatureSummary('familylink');
-        return;
-      }
-      state.familyParams.forEach((p) => {
-        const item = document.createElement('label');
-        item.className = 'check-item';
-        const input = document.createElement('input');
-        input.type = 'checkbox';
-        const key = `${p.name}|${p.guid}`;
-        input.checked = state.features.familylink.targets.some((t) => `${t.name}|${t.guid}` === key);
-        input.addEventListener('change', () => {
-          toggleTarget(p, input.checked);
-          markStale('familylink');
-        });
-        const text = document.createElement('span');
-        text.textContent = p.name;
-        item.append(input, text);
-        list.append(item);
-      });
-      updateFeatureSummary('familylink');
-    }
-
-    buildFamilyLinkConfig.repaint = repaint;
     return { panel };
   }
 
@@ -686,35 +544,6 @@ export function renderMulti(root) {
     return btn;
   }
 
-  function createEmptyState(message, actionLabel, onAction) {
-    const wrap = div('empty-state');
-    const text = document.createElement('p');
-    text.textContent = message;
-    wrap.append(text);
-    if (actionLabel && onAction) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'btn btn--secondary';
-      btn.textContent = actionLabel;
-      btn.addEventListener('click', onAction);
-      wrap.append(btn);
-    }
-    return wrap;
-  }
-
-  function toggleListValue(arr, value, on) {
-    const idx = arr.indexOf(value);
-    if (on && idx < 0) arr.push(value);
-    if (!on && idx >= 0) arr.splice(idx, 1);
-  }
-
-  function toggleTarget(item, on) {
-    const key = `${item.name}|${item.guid}`;
-    const idx = state.features.familylink.targets.findIndex((t) => `${t.name}|${t.guid}` === key);
-    if (on && idx < 0) state.features.familylink.targets.push({ name: item.name, guid: item.guid });
-    if (!on && idx >= 0) state.features.familylink.targets.splice(idx, 1);
-  }
-
   function markStale(key) {
     state.results[key].stale = true;
     state.results[key].count = 0;
@@ -773,19 +602,6 @@ export function renderMulti(root) {
       toast('RVT 파일을 추가하세요.', 'warn');
       return;
     }
-    if (state.features.pms.enabled && !state.features.pms.pmsReady) {
-      toast('PMS Excel을 먼저 등록하세요.', 'warn');
-      return;
-    }
-    if (state.features.paramprop.enabled && !state.features.paramprop.paramNames.length) {
-      toast('파라미터 연동 검토에 사용할 파라미터를 선택하세요.', 'warn');
-      return;
-    }
-    if (state.features.familylink.enabled && !state.features.familylink.targets.length) {
-      toast('패밀리 연동 검토 대상 파라미터를 선택하세요.', 'warn');
-      return;
-    }
-
     setBusyState(true);
     ProgressDialog.show('다중 RVT 검토', '준비 중...');
     ProgressDialog.update(0, '준비 중...', '');
@@ -798,10 +614,7 @@ export function renderMulti(root) {
       commonOptions: state.common,
       features: {
         connector: state.features.connector,
-        pms: state.features.pms,
         guid: state.features.guid,
-        paramprop: state.features.paramprop,
-        familylink: state.features.familylink,
         points: state.features.points
       }
     };
@@ -826,14 +639,6 @@ export function renderMulti(root) {
       else if (!el.classList.contains('btn--primary')) el.disabled = false;
     });
     if (!on) renderRvtList();
-  }
-
-  function repaintParamPropOptions() {
-    if (buildParamPropConfig.repaint) buildParamPropConfig.repaint();
-  }
-
-  function repaintFamilyLinkOptions() {
-    if (buildFamilyLinkConfig.repaint) buildFamilyLinkConfig.repaint();
   }
 
   function renderRvtList() {
@@ -892,15 +697,6 @@ export function renderMulti(root) {
     if (!feature?.enabled) {
       return { label: 'OFF', className: 'chip--off' };
     }
-    if (key === 'pms' && !feature.pmsReady) {
-      return { label: '설정 필요', className: 'chip--warn' };
-    }
-    if (key === 'paramprop' && (!feature.paramNames || feature.paramNames.length === 0)) {
-      return { label: '설정 필요', className: 'chip--warn' };
-    }
-    if (key === 'familylink' && (!feature.targets || feature.targets.length === 0)) {
-      return { label: '설정 필요', className: 'chip--warn' };
-    }
     return { label: '준비됨', className: 'chip--ok' };
   }
 
@@ -929,26 +725,10 @@ export function renderMulti(root) {
       const excludeText = state.common.excludeEndDummy ? 'Dummy 제외' : 'Dummy 포함';
       return `tol=${feature.tol} ${feature.unit} / param=${feature.param} / extra=${extraCount} / ${filterText} / ${excludeText}`;
     }
-    if (key === 'pms') {
-      const pmsText = feature.pmsReady ? 'PMS 등록됨' : 'PMS 미등록';
-      const classText = feature.classMatch ? 'Class=ON' : 'Class=OFF';
-      return `ND=${feature.ndRound} / tol=${feature.tolMm}mm / ${classText} / ${pmsText}`;
-    }
     if (key === 'guid') {
       const famText = feature.includeFamily ? 'Family=ON' : 'Family=OFF';
       const annoText = feature.includeAnnotation ? 'Annotation=ON' : 'Annotation=OFF';
       return `${famText} / ${annoText}`;
-    }
-    if (key === 'paramprop') {
-      const groupText = feature.group || '그룹 미지정';
-      const countText = `선택 ${feature.paramNames.length}개`;
-      const instText = feature.isInstance ? 'Instance=ON' : 'Instance=OFF';
-      const dummyText = feature.excludeDummy ? 'Dummy 제외' : 'Dummy 포함';
-      return `${groupText} / ${countText} / ${instText} / ${dummyText}`;
-    }
-    if (key === 'familylink') {
-      const countText = `선택 ${feature.targets.length}개`;
-      return `공유 파라미터 ${countText}`;
     }
     if (key === 'points') {
       return `Unit=${feature.unit}`;
@@ -1000,30 +780,10 @@ export function renderMulti(root) {
         '파라미터는 Comments 등 대상 값을 지정합니다.'
       ];
     }
-    if (key === 'pms') {
-      return [
-        'ND Round는 반올림 자리수입니다.',
-        'tol(mm)은 비교 허용 오차입니다.',
-        'PMS 미등록 시 검토가 진행되지 않습니다.'
-      ];
-    }
     if (key === 'guid') {
       return [
         '패밀리/Annotation 포함 여부를 선택합니다.',
         '공유 파라미터 GUID 일치 여부를 검토합니다.'
-      ];
-    }
-    if (key === 'paramprop') {
-      return [
-        '타겟 그룹을 선택한 뒤 파라미터를 체크합니다.',
-        '선택이 0개면 설정 필요 상태가 됩니다.',
-        'Dummy 제외 옵션으로 제외 여부를 설정합니다.'
-      ];
-    }
-    if (key === 'familylink') {
-      return [
-        '공유 파라미터 목록에서 대상 항목을 선택합니다.',
-        '목록이 비어 있으면 Shared Parameter 등록이 필요합니다.'
       ];
     }
     if (key === 'points') {

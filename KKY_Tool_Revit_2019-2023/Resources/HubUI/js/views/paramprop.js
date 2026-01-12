@@ -321,7 +321,9 @@ export function renderParamProp(root) {
             const tr = document.createElement('tr');
             const tdEmpty = document.createElement('td');
             tdEmpty.colSpan = 2;
-            tdEmpty.textContent = state.defs.length ? '조건에 맞는 항목이 없습니다.' : '공유 파라미터 파일을 불러오세요.';
+            tdEmpty.textContent = state.defs.length
+                ? '조건에 맞는 항목이 없습니다.'
+                : 'Shared Parameter 등록이 필요합니다. Revit에서 Shared Parameter Text를 등록/연결 후 다시 시도하세요.';
             tdEmpty.className = 'paramprop-empty';
             tr.append(tdEmpty);
             tbody.append(tr);
