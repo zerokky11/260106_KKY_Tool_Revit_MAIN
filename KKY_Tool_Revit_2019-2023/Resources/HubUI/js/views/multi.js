@@ -48,6 +48,10 @@ export function renderMulti(root) {
     </div>`;
   page.append(header);
 
+  const layout = div('multi-layout');
+  const leftCol = div('multi-left');
+  const rightCol = div('multi-right');
+
   const group1 = buildGroupSection('납품 시 BQC 검토', '커넥터 진단 (BQC용)');
   const group2 = buildGroupSection('주기적 검토', 'PMS / GUID / 파라미터 연동');
   const group3 = buildGroupSection('유틸리티', '공유 파라미터 연동 / Point 추출');
@@ -61,7 +65,10 @@ export function renderMulti(root) {
   group3.section.append(buildToggleRow('familylink', '공유 파라미터 추가 및 연동', '네스티드 패밀리 연동 검토', buildFamilyLinkConfig()));
   group3.section.append(buildToggleRow('points', 'Point 추출', 'Project/Survey Point 좌표 추출', buildPointsConfig()));
 
-  page.append(group1.wrap, group2.wrap, group3.wrap, buildRvtSection(), buildFooter());
+  leftCol.append(group1.wrap, group2.wrap, group3.wrap);
+  rightCol.append(buildRunBar(), buildRvtSection());
+  layout.append(leftCol, rightCol);
+  page.append(layout);
   target.append(page);
 
   onHost('hub:rvt-picked', (payload) => {
@@ -88,18 +95,21 @@ export function renderMulti(root) {
     const pct = Math.max(0, Math.min(100, pctValue));
     ProgressDialog.show(payload?.title || '다중 RVT 검토', payload?.message || '');
     ProgressDialog.update(pct, payload?.message || '', payload?.detail || '');
+    updateRunProgress(pct, payload?.message || '', payload?.detail || '');
   });
 
   onHost('hub:multi-done', (payload) => {
     setBusyState(false);
     ProgressDialog.update(100, '완료', '검토가 완료되었습니다.');
     setTimeout(() => ProgressDialog.hide(), 500);
+    updateRunProgress(100, '완료', '검토가 완료되었습니다.');
     updateResultSummary(payload?.summary || {});
   });
 
   onHost('hub:multi-error', (payload) => {
     setBusyState(false);
     ProgressDialog.hide();
+    updateRunProgress(0, '오류 발생', payload?.message || '');
     toast(payload?.message || '배치 검토 중 오류가 발생했습니다.', 'err');
   });
 
@@ -173,32 +183,45 @@ export function renderMulti(root) {
   }
 
   function buildToggleRow(key, title, desc, config) {
-    const row = div('multi-toggle-row');
+    const row = div('multi-toggle-row feature-card');
     row.dataset.key = key;
+    const header = div('feature-header-row');
     const toggle = document.createElement('input');
     toggle.type = 'checkbox';
+    toggle.className = 'feature-toggle';
     toggle.addEventListener('change', () => {
       state.features[key].enabled = toggle.checked;
       row.classList.toggle('is-active', toggle.checked);
       config.panel.classList.toggle('is-open', toggle.checked);
       markStale(key);
+      updateRunSummary();
     });
 
     const meta = div('multi-toggle-meta');
     meta.innerHTML = `<h4>${title}</h4><p>${desc}</p>`;
 
+    const statusWrap = div('feature-status');
+    const statusChip = document.createElement('span');
+    statusChip.className = 'chip chip--off';
+    const resultChip = document.createElement('span');
+    resultChip.className = 'chip chip--result';
+    resultChip.style.display = 'none';
+    statusWrap.append(statusChip, resultChip);
+
     const actions = div('multi-toggle-actions');
     const exportBtn = document.createElement('button');
     exportBtn.type = 'button';
-    exportBtn.className = 'btn-outline';
+    exportBtn.className = 'btn-outline export-btn';
     exportBtn.textContent = '엑셀 내보내기';
     exportBtn.disabled = true;
     exportBtn.addEventListener('click', () => onExport(key));
-    actions.append(exportBtn);
+    actions.append(statusWrap, exportBtn);
 
-    row.append(toggle, meta, actions);
-    row.append(config.panel);
+    header.append(toggle, meta, actions);
+    row.append(header, config.panel);
     config.exportBtn = exportBtn;
+    config.statusChip = statusChip;
+    config.resultChip = resultChip;
     syncFeatureRow(key);
     return row;
   }
@@ -287,7 +310,7 @@ export function renderMulti(root) {
     const panel = div('multi-config');
     const groupSelect = makeSelectField('타겟 그룹', []);
     const list = document.createElement('div');
-    list.className = 'multi-param-list';
+    list.className = 'checklist';
     panel.append(groupSelect.field, list);
 
     groupSelect.select.addEventListener('change', () => {
@@ -326,7 +349,7 @@ export function renderMulti(root) {
       list.innerHTML = '';
       state.sharedParams.forEach((p) => {
         const item = document.createElement('label');
-        item.className = 'field';
+        item.className = 'check-item';
         const input = document.createElement('input');
         input.type = 'checkbox';
         input.checked = state.features.paramprop.paramNames.includes(p.name);
@@ -334,7 +357,9 @@ export function renderMulti(root) {
           toggleListValue(state.features.paramprop.paramNames, p.name, input.checked);
           markStale('paramprop');
         });
-        item.append(input, document.createTextNode(` ${p.name}`));
+        const text = document.createElement('span');
+        text.textContent = p.name;
+        item.append(input, text);
         list.append(item);
       });
     }
@@ -346,14 +371,14 @@ export function renderMulti(root) {
   function buildFamilyLinkConfig() {
     const panel = div('multi-config');
     const list = document.createElement('div');
-    list.className = 'multi-param-list';
+    list.className = 'checklist';
     panel.append(list);
 
     function repaint() {
       list.innerHTML = '';
       state.familyParams.forEach((p) => {
         const item = document.createElement('label');
-        item.className = 'field';
+        item.className = 'check-item';
         const input = document.createElement('input');
         input.type = 'checkbox';
         const key = `${p.name}|${p.guid}`;
@@ -362,7 +387,9 @@ export function renderMulti(root) {
           toggleTarget(p, input.checked);
           markStale('familylink');
         });
-        item.append(input, document.createTextNode(` ${p.name}`));
+        const text = document.createElement('span');
+        text.textContent = p.name;
+        item.append(input, text);
         list.append(item);
       });
     }
@@ -387,10 +414,14 @@ export function renderMulti(root) {
   }
 
   function buildRvtSection() {
-    const section = div('multi-section');
-    const head = div('multi-section-title');
-    head.innerHTML = '<h3>RVT 리스트</h3>';
-    section.append(head);
+    const section = div('multi-section rvt-panel');
+    const head = div('rvt-panel-header');
+    const title = document.createElement('div');
+    title.className = 'rvt-panel-title';
+    const badge = document.createElement('span');
+    badge.className = 'chip chip--info';
+    title.innerHTML = '<h3>RVT 리스트</h3>';
+    title.append(badge);
 
     const controls = div('multi-rvt-controls');
     const btnAdd = cardBtn('RVT 추가', () => post('hub:pick-rvt', {}));
@@ -408,10 +439,23 @@ export function renderMulti(root) {
     });
     controls.append(btnAdd, btnRemove, btnClear);
 
+    head.append(title, controls);
+    section.append(head);
+
+    const body = div('rvt-panel-body');
     const { table, tbody, master } = createRvtTable();
     const summary = div('multi-rvt-summary');
+    const empty = div('rvt-empty');
+    const emptyTitle = document.createElement('strong');
+    emptyTitle.textContent = '등록된 RVT가 없습니다.';
+    const emptySub = document.createElement('span');
+    emptySub.textContent = 'RVT 추가로 파일을 등록하세요.';
+    const emptyBtn = cardBtn('RVT 추가', () => post('hub:pick-rvt', {}));
+    emptyBtn.classList.add('btn-primary');
+    empty.append(emptyTitle, emptySub, emptyBtn);
 
-    section.append(controls, table, summary);
+    body.append(table, empty, summary);
+    section.append(body);
 
     function syncMaster() {
       const allChecked = state.rvtList.length > 0 && state.rvtList.every((p) => state.rvtChecked.has(p));
@@ -440,10 +484,14 @@ export function renderMulti(root) {
         }
       }));
       renderRvtRows(tbody, rows, '등록된 RVT가 없습니다.');
-      summary.textContent = `총 파일 수: ${state.rvtList.length}`;
+      const count = state.rvtList.length;
+      summary.textContent = `총 파일 수: ${count}`;
+      badge.textContent = `${count}개`;
+      empty.style.display = count ? 'none' : 'flex';
       syncMaster();
       btnRemove.disabled = state.rvtChecked.size === 0;
       btnClear.disabled = state.rvtList.length === 0;
+      updateRunSummary();
     }
 
     buildRvtSection.render = renderRvtList;
@@ -451,15 +499,31 @@ export function renderMulti(root) {
     return section;
   }
 
-  function buildFooter() {
-    const foot = div('multi-footer');
-    const info = div('multi-rvt-summary');
-    info.textContent = '선택한 기능을 실행합니다.';
+  function buildRunBar() {
+    const bar = div('run-bar');
+    const summary = div('run-summary');
+    const status = div('run-status');
+    const progressText = document.createElement('span');
+    const progressDetail = document.createElement('small');
+    const progressBar = document.createElement('div');
+    progressBar.className = 'run-progress';
+    const progressFill = document.createElement('div');
+    progressFill.className = 'run-progress-fill';
+    progressBar.append(progressFill);
+    status.append(progressText, progressDetail, progressBar);
+
     const startBtn = cardBtn('검토 시작', onRun);
     startBtn.classList.add('btn-primary', 'multi-start-btn');
-    foot.append(info, startBtn);
-    buildFooter.startBtn = startBtn;
-    return foot;
+    bar.append(summary, status, startBtn);
+
+    buildRunBar.startBtn = startBtn;
+    buildRunBar.summary = summary;
+    buildRunBar.progressText = progressText;
+    buildRunBar.progressDetail = progressDetail;
+    buildRunBar.progressFill = progressFill;
+    updateRunSummary();
+    updateRunProgress(0, '대기 중', '');
+    return bar;
   }
 
   function makeField(label, name, placeholder, type) {
@@ -535,9 +599,27 @@ export function renderMulti(root) {
   function syncFeatureRow(key) {
     const row = page.querySelector(`.multi-toggle-row[data-key="${key}"]`);
     if (!row) return;
-    const exportBtn = row.querySelector('button.btn-outline');
+    const exportBtn = row.querySelector('button.export-btn');
+    const statusChip = row.querySelector('.chip');
+    const resultChip = row.querySelector('.chip--result');
     const res = state.results[key];
     exportBtn.disabled = state.busy || res.stale || res.count === 0;
+    exportBtn.title = exportBtn.disabled ? '결과가 없습니다.' : '';
+
+    const feature = state.features[key];
+    const readiness = getFeatureReadiness(key, feature);
+    if (statusChip) {
+      statusChip.textContent = readiness.label;
+      statusChip.className = `chip ${readiness.className}`;
+    }
+    if (resultChip) {
+      if (!res.stale && res.count > 0) {
+        resultChip.textContent = `결과 ${res.count}`;
+        resultChip.style.display = 'inline-flex';
+      } else {
+        resultChip.style.display = 'none';
+      }
+    }
   }
 
   function updateResultSummary(summary) {
@@ -603,7 +685,7 @@ export function renderMulti(root) {
   function setBusyState(on) {
     state.busy = on;
     setBusy(on);
-    if (buildFooter.startBtn) buildFooter.startBtn.disabled = on;
+    if (buildRunBar.startBtn) buildRunBar.startBtn.disabled = on;
     FEATURE_KEYS.forEach(syncFeatureRow);
     const inputs = page.querySelectorAll('input, select, textarea, button');
     inputs.forEach((el) => {
@@ -624,5 +706,38 @@ export function renderMulti(root) {
 
   function renderRvtList() {
     if (buildRvtSection.render) buildRvtSection.render();
+  }
+
+  function updateRunSummary() {
+    if (!buildRunBar.summary) return;
+    const enabledCount = FEATURE_KEYS.filter((k) => state.features[k].enabled).length;
+    const rvtCount = state.rvtList.length;
+    buildRunBar.summary.innerHTML = `<strong>선택 기능: ${enabledCount}개</strong><span>RVT: ${rvtCount}개</span>`;
+  }
+
+  function updateRunProgress(percent, message, detail) {
+    if (!buildRunBar.progressText) return;
+    buildRunBar.progressText.textContent = message || '대기 중';
+    buildRunBar.progressDetail.textContent = detail || '';
+    if (buildRunBar.progressFill) {
+      const pct = Math.max(0, Math.min(100, Number(percent) || 0));
+      buildRunBar.progressFill.style.width = `${pct}%`;
+    }
+  }
+
+  function getFeatureReadiness(key, feature) {
+    if (!feature?.enabled) {
+      return { label: 'OFF', className: 'chip--off' };
+    }
+    if (key === 'pms' && !feature.pmsReady) {
+      return { label: '설정 필요', className: 'chip--warn' };
+    }
+    if (key === 'paramprop' && (!feature.paramNames || feature.paramNames.length === 0)) {
+      return { label: '설정 필요', className: 'chip--warn' };
+    }
+    if (key === 'familylink' && (!feature.targets || feature.targets.length === 0)) {
+      return { label: '설정 필요', className: 'chip--warn' };
+    }
+    return { label: '준비됨', className: 'chip--ok' };
   }
 }
