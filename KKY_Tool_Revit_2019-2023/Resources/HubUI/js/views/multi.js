@@ -31,7 +31,13 @@ export function renderMulti(root) {
     results: {},
     sharedParams: [],
     paramGroups: [],
-    familyParams: []
+    familyParams: [],
+    ui: {
+      settingsOpen: false,
+      activeFeatureKey: '',
+      activeFeatureTitle: '',
+      panels: {}
+    }
   };
 
   FEATURE_KEYS.forEach((k) => {
@@ -69,6 +75,7 @@ export function renderMulti(root) {
   rightCol.append(buildRunBar(), buildRvtSection());
   layout.append(leftCol, rightCol);
   page.append(layout);
+  page.append(buildSettingsDrawer());
   target.append(page);
 
   onHost('hub:rvt-picked', (payload) => {
@@ -126,6 +133,8 @@ export function renderMulti(root) {
   onHost('segmentpms:pms-registered', (payload) => {
     state.features.pms.pmsReady = !!payload?.path;
     syncFeatureRow('pms');
+    updateFeatureSummary('pms');
+    updateDrawerBadge('pms');
   });
 
   onHost('sharedparam:list', (payload) => {
@@ -192,7 +201,6 @@ export function renderMulti(root) {
     toggle.addEventListener('change', () => {
       state.features[key].enabled = toggle.checked;
       row.classList.toggle('is-active', toggle.checked);
-      config.panel.classList.toggle('is-open', toggle.checked);
       markStale(key);
       updateRunSummary();
     });
@@ -203,25 +211,43 @@ export function renderMulti(root) {
     const statusWrap = div('feature-status');
     const statusChip = document.createElement('span');
     statusChip.className = 'chip chip--off';
+    statusChip.addEventListener('click', () => {
+      if (statusChip.classList.contains('chip--warn')) {
+        openSettings(key, title);
+      }
+    });
     const resultChip = document.createElement('span');
     resultChip.className = 'chip chip--result';
     resultChip.style.display = 'none';
     statusWrap.append(statusChip, resultChip);
 
     const actions = div('multi-toggle-actions');
+    const settingsBtn = document.createElement('button');
+    settingsBtn.type = 'button';
+    settingsBtn.className = 'btn-outline settings-btn';
+    settingsBtn.textContent = '설정';
+    settingsBtn.addEventListener('click', () => openSettings(key, title));
+
     const exportBtn = document.createElement('button');
     exportBtn.type = 'button';
     exportBtn.className = 'btn-outline export-btn';
     exportBtn.textContent = '엑셀 내보내기';
     exportBtn.disabled = true;
     exportBtn.addEventListener('click', () => onExport(key));
-    actions.append(statusWrap, exportBtn);
+    actions.append(statusWrap, settingsBtn, exportBtn);
 
     header.append(toggle, meta, actions);
-    row.append(header, config.panel);
+    const summary = div('feature-summary');
+    summary.textContent = buildFeatureSummary(key);
+    row.append(header, summary);
     config.exportBtn = exportBtn;
     config.statusChip = statusChip;
     config.resultChip = resultChip;
+    config.summary = summary;
+    config.title = title;
+    config.key = key;
+    config.panel.classList.add('settings-panel', 'is-open');
+    state.ui.panels[key] = config.panel;
     syncFeatureRow(key);
     return row;
   }
@@ -362,6 +388,7 @@ export function renderMulti(root) {
         item.append(input, text);
         list.append(item);
       });
+      updateFeatureSummary('paramprop');
     }
 
     buildParamPropConfig.repaint = repaint;
@@ -392,6 +419,7 @@ export function renderMulti(root) {
         item.append(input, text);
         list.append(item);
       });
+      updateFeatureSummary('familylink');
     }
 
     buildFamilyLinkConfig.repaint = repaint;
@@ -526,6 +554,49 @@ export function renderMulti(root) {
     return bar;
   }
 
+  function buildSettingsDrawer() {
+    const overlay = div('settings-overlay');
+    const drawer = div('settings-drawer');
+    const header = div('settings-drawer__header');
+    const title = document.createElement('div');
+    title.className = 'settings-title';
+    const badge = document.createElement('span');
+    badge.className = 'chip chip--warn';
+    badge.style.display = 'none';
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn-outline settings-close';
+    closeBtn.textContent = '✕';
+    header.append(title, badge, closeBtn);
+
+    const body = div('settings-drawer__body');
+    const footer = div('settings-drawer__footer');
+    const footerBtn = document.createElement('button');
+    footerBtn.type = 'button';
+    footerBtn.className = 'btn-primary';
+    footerBtn.textContent = '닫기';
+    footer.append(footerBtn);
+
+    drawer.append(header, body, footer);
+    overlay.append(drawer);
+
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) closeSettings();
+    });
+    closeBtn.addEventListener('click', closeSettings);
+    footerBtn.addEventListener('click', closeSettings);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeSettings();
+    });
+
+    buildSettingsDrawer.overlay = overlay;
+    buildSettingsDrawer.drawer = drawer;
+    buildSettingsDrawer.title = title;
+    buildSettingsDrawer.badge = badge;
+    buildSettingsDrawer.body = body;
+    return overlay;
+  }
+
   function makeField(label, name, placeholder, type) {
     const field = div('field');
     const lab = document.createElement('label');
@@ -589,6 +660,7 @@ export function renderMulti(root) {
     state.results[key].stale = true;
     state.results[key].count = 0;
     syncFeatureRow(key);
+    updateFeatureSummary(key);
     post('hub:multi-clear', { key });
   }
 
@@ -611,6 +683,7 @@ export function renderMulti(root) {
     if (statusChip) {
       statusChip.textContent = readiness.label;
       statusChip.className = `chip ${readiness.className}`;
+      statusChip.classList.toggle('is-clickable', readiness.className === 'chip--warn');
     }
     if (resultChip) {
       if (!res.stale && res.count > 0) {
@@ -708,6 +781,35 @@ export function renderMulti(root) {
     if (buildRvtSection.render) buildRvtSection.render();
   }
 
+  function openSettings(key, title) {
+    const config = state.features[key];
+    if (!buildSettingsDrawer.body) return;
+    state.ui.settingsOpen = true;
+    state.ui.activeFeatureKey = key;
+    state.ui.activeFeatureTitle = title || '';
+    buildSettingsDrawer.title.textContent = `${title || ''} 설정`;
+    const readiness = getFeatureReadiness(key, config);
+    if (buildSettingsDrawer.badge) {
+      buildSettingsDrawer.badge.textContent = readiness.label;
+      buildSettingsDrawer.badge.className = `chip ${readiness.className}`;
+      buildSettingsDrawer.badge.style.display = readiness.className === 'chip--warn' ? 'inline-flex' : 'none';
+    }
+    buildSettingsDrawer.body.innerHTML = '';
+    const panel = getFeaturePanel(key);
+    if (panel) buildSettingsDrawer.body.append(panel);
+    buildSettingsDrawer.overlay.classList.add('is-open');
+  }
+
+  function closeSettings() {
+    if (!buildSettingsDrawer.overlay) return;
+    state.ui.settingsOpen = false;
+    buildSettingsDrawer.overlay.classList.remove('is-open');
+  }
+
+  function getFeaturePanel(key) {
+    return state.ui.panels[key] || null;
+  }
+
   function updateRunSummary() {
     if (!buildRunBar.summary) return;
     const enabledCount = FEATURE_KEYS.filter((k) => state.features[k].enabled).length;
@@ -739,5 +841,57 @@ export function renderMulti(root) {
       return { label: '설정 필요', className: 'chip--warn' };
     }
     return { label: '준비됨', className: 'chip--ok' };
+  }
+
+  function updateDrawerBadge(key) {
+    if (!state.ui.settingsOpen || state.ui.activeFeatureKey !== key || !buildSettingsDrawer.badge) return;
+    const readiness = getFeatureReadiness(key, state.features[key]);
+    buildSettingsDrawer.badge.textContent = readiness.label;
+    buildSettingsDrawer.badge.className = `chip ${readiness.className}`;
+    buildSettingsDrawer.badge.style.display = readiness.className === 'chip--warn' ? 'inline-flex' : 'none';
+  }
+
+  function updateFeatureSummary(key) {
+    const row = page.querySelector(`.multi-toggle-row[data-key="${key}"]`);
+    if (!row) return;
+    const summary = row.querySelector('.feature-summary');
+    if (!summary) return;
+    summary.textContent = buildFeatureSummary(key);
+    updateDrawerBadge(key);
+  }
+
+  function buildFeatureSummary(key) {
+    const feature = state.features[key];
+    if (key === 'connector') {
+      const extraCount = state.common.extraParams ? state.common.extraParams.split(',').filter((v) => v.trim()).length : 0;
+      const filterText = state.common.targetFilter ? state.common.targetFilter : '필터 없음';
+      const excludeText = state.common.excludeEndDummy ? 'Dummy 제외' : 'Dummy 포함';
+      return `tol=${feature.tol} ${feature.unit} / param=${feature.param} / extra=${extraCount} / ${filterText} / ${excludeText}`;
+    }
+    if (key === 'pms') {
+      const pmsText = feature.pmsReady ? 'PMS 등록됨' : 'PMS 미등록';
+      const classText = feature.classMatch ? 'Class=ON' : 'Class=OFF';
+      return `ND=${feature.ndRound} / tol=${feature.tolMm}mm / ${classText} / ${pmsText}`;
+    }
+    if (key === 'guid') {
+      const famText = feature.includeFamily ? 'Family=ON' : 'Family=OFF';
+      const annoText = feature.includeAnnotation ? 'Annotation=ON' : 'Annotation=OFF';
+      return `${famText} / ${annoText}`;
+    }
+    if (key === 'paramprop') {
+      const groupText = feature.group || '그룹 미지정';
+      const countText = `선택 ${feature.paramNames.length}개`;
+      const instText = feature.isInstance ? 'Instance=ON' : 'Instance=OFF';
+      const dummyText = feature.excludeDummy ? 'Dummy 제외' : 'Dummy 포함';
+      return `${groupText} / ${countText} / ${instText} / ${dummyText}`;
+    }
+    if (key === 'familylink') {
+      const countText = `선택 ${feature.targets.length}개`;
+      return `공유 파라미터 ${countText}`;
+    }
+    if (key === 'points') {
+      return `Unit=${feature.unit}`;
+    }
+    return '';
   }
 }
