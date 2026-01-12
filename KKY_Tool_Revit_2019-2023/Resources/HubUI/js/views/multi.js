@@ -33,7 +33,7 @@ export function renderMulti(root) {
     paramGroups: [],
     familyParams: [],
     ui: {
-      settingsOpen: false,
+      modalOpen: false,
       activeFeatureKey: '',
       activeFeatureTitle: '',
       panels: {}
@@ -75,7 +75,7 @@ export function renderMulti(root) {
   rightCol.append(buildRunBar(), buildRvtSection());
   layout.append(leftCol, rightCol);
   page.append(layout);
-  page.append(buildSettingsDrawer());
+  page.append(buildSettingsModal());
   target.append(page);
 
   onHost('hub:rvt-picked', (payload) => {
@@ -162,8 +162,21 @@ export function renderMulti(root) {
   }
 
   function buildGroup1Options() {
-    const panel = div('multi-group-options');
-    panel.innerHTML = `<div class="section-header"><h4>그룹 공통 옵션</h4></div>`;
+    const panel = div('group-common-mini');
+    const header = div('group-common-mini__header');
+    const title = document.createElement('h4');
+    title.textContent = '그룹 공통 옵션';
+    const settingsBtn = document.createElement('button');
+    settingsBtn.type = 'button';
+    settingsBtn.className = 'btn btn--secondary';
+    settingsBtn.textContent = '공통 옵션 설정';
+    settingsBtn.addEventListener('click', () => openSettings('common', '그룹 공통 옵션'));
+    header.append(title, settingsBtn);
+
+    const summary = div('group-common-mini__summary');
+    summary.textContent = buildCommonSummary();
+    panel.append(header, summary);
+
     const fields = div('multi-config is-open');
     const extra = makeField('추가 Parameter 값 추출', 'extra', 'PM1, PM2', 'textarea');
     const filter = makeField('검토 대상 필터', 'filter', 'ex) PM1=Value', 'text');
@@ -176,25 +189,30 @@ export function renderMulti(root) {
     extra.input.addEventListener('change', () => {
       state.common.extraParams = extra.input.value;
       markStale('connector');
+      updateCommonSummary(summary);
     });
     filter.input.addEventListener('change', () => {
       state.common.targetFilter = filter.input.value;
       markStale('connector');
+      updateCommonSummary(summary);
     });
     exclude.input.addEventListener('change', () => {
       state.common.excludeEndDummy = exclude.input.checked;
       markStale('connector');
+      updateCommonSummary(summary);
     });
 
     fields.append(extra.field, filter.field, exclude.field);
-    panel.append(fields);
+    fields.classList.add('settings-panel', 'is-open');
+    state.ui.panels.common = fields;
+
     return panel;
   }
 
   function buildToggleRow(key, title, desc, config) {
-    const row = div('multi-toggle-row feature-card');
+    const row = div('feature-row');
     row.dataset.key = key;
-    const header = div('feature-header-row');
+    const header = div('feature-row__header');
     const toggle = document.createElement('input');
     toggle.type = 'checkbox';
     toggle.className = 'feature-toggle';
@@ -205,12 +223,16 @@ export function renderMulti(root) {
       updateRunSummary();
     });
 
-    const meta = div('multi-toggle-meta');
-    meta.innerHTML = `<h4>${title}</h4><p>${desc}</p>`;
+    const meta = div('feature-row__left');
+    const metaTitle = document.createElement('strong');
+    metaTitle.textContent = title;
+    const metaDesc = document.createElement('span');
+    metaDesc.textContent = desc;
+    meta.append(toggle, metaTitle, metaDesc);
 
-    const statusWrap = div('feature-status');
+    const statusWrap = div('feature-row__right');
     const statusChip = document.createElement('span');
-    statusChip.className = 'chip chip--off';
+    statusChip.className = 'chip chip--off feature-chip';
     statusChip.addEventListener('click', () => {
       if (statusChip.classList.contains('chip--warn')) {
         openSettings(key, title);
@@ -221,23 +243,22 @@ export function renderMulti(root) {
     resultChip.style.display = 'none';
     statusWrap.append(statusChip, resultChip);
 
-    const actions = div('multi-toggle-actions');
     const settingsBtn = document.createElement('button');
     settingsBtn.type = 'button';
-    settingsBtn.className = 'btn-outline settings-btn';
+    settingsBtn.className = 'btn btn--secondary settings-btn';
     settingsBtn.textContent = '설정';
     settingsBtn.addEventListener('click', () => openSettings(key, title));
 
     const exportBtn = document.createElement('button');
     exportBtn.type = 'button';
-    exportBtn.className = 'btn-outline export-btn';
+    exportBtn.className = 'btn btn--secondary export-btn';
     exportBtn.textContent = '엑셀 내보내기';
     exportBtn.disabled = true;
     exportBtn.addEventListener('click', () => onExport(key));
-    actions.append(statusWrap, settingsBtn, exportBtn);
+    statusWrap.append(statusChip, resultChip, settingsBtn, exportBtn);
 
-    header.append(toggle, meta, actions);
-    const summary = div('feature-summary');
+    header.append(meta, statusWrap);
+    const summary = div('feature-row__summary');
     summary.textContent = buildFeatureSummary(key);
     row.append(header, summary);
     config.exportBtn = exportBtn;
@@ -304,7 +325,7 @@ export function renderMulti(root) {
     });
     const pmsBtn = document.createElement('button');
     pmsBtn.type = 'button';
-    pmsBtn.className = 'btn-outline';
+    pmsBtn.className = 'btn btn--secondary';
     pmsBtn.textContent = 'PMS Excel 등록';
     pmsBtn.addEventListener('click', () => post('segmentpms:register-pms', { unit: 'mm' }));
     const pmsField = div('field');
@@ -373,6 +394,15 @@ export function renderMulti(root) {
         groupSelect.select.value = state.features.paramprop.group;
       }
       list.innerHTML = '';
+      if (!state.sharedParams.length) {
+        list.append(createEmptyState(
+          'Shared Parameter 텍스트가 등록되어 있지 않습니다.',
+          '새로고침',
+          () => post('sharedparam:list', {})
+        ));
+        updateFeatureSummary('paramprop');
+        return;
+      }
       state.sharedParams.forEach((p) => {
         const item = document.createElement('label');
         item.className = 'check-item';
@@ -403,6 +433,15 @@ export function renderMulti(root) {
 
     function repaint() {
       list.innerHTML = '';
+      if (!state.familyParams.length) {
+        list.append(createEmptyState(
+          'Shared Parameter 텍스트가 등록되어 있지 않습니다.',
+          '새로고침',
+          () => post('familylink:init', {})
+        ));
+        updateFeatureSummary('familylink');
+        return;
+      }
       state.familyParams.forEach((p) => {
         const item = document.createElement('label');
         item.className = 'check-item';
@@ -452,19 +491,19 @@ export function renderMulti(root) {
     title.append(badge);
 
     const controls = div('multi-rvt-controls');
-    const btnAdd = cardBtn('RVT 추가', () => post('hub:pick-rvt', {}));
+    const btnAdd = cardBtn('RVT 추가', () => post('hub:pick-rvt', {}), 'btn--primary');
     const btnRemove = cardBtn('선택 제거', () => {
       state.rvtList = state.rvtList.filter((p) => !state.rvtChecked.has(p));
       state.rvtChecked.clear();
       markAllStale();
       renderRvtList();
-    });
+    }, 'btn--secondary');
     const btnClear = cardBtn('목록 지우기', () => {
       state.rvtList = [];
       state.rvtChecked.clear();
       markAllStale();
       renderRvtList();
-    });
+    }, 'btn--secondary');
     controls.append(btnAdd, btnRemove, btnClear);
 
     head.append(title, controls);
@@ -478,8 +517,7 @@ export function renderMulti(root) {
     emptyTitle.textContent = '등록된 RVT가 없습니다.';
     const emptySub = document.createElement('span');
     emptySub.textContent = 'RVT 추가로 파일을 등록하세요.';
-    const emptyBtn = cardBtn('RVT 추가', () => post('hub:pick-rvt', {}));
-    emptyBtn.classList.add('btn-primary');
+    const emptyBtn = cardBtn('RVT 추가', () => post('hub:pick-rvt', {}), 'btn--primary');
     empty.append(emptyTitle, emptySub, emptyBtn);
 
     body.append(table, empty, summary);
@@ -540,8 +578,8 @@ export function renderMulti(root) {
     progressBar.append(progressFill);
     status.append(progressText, progressDetail, progressBar);
 
-    const startBtn = cardBtn('검토 시작', onRun);
-    startBtn.classList.add('btn-primary', 'multi-start-btn');
+    const startBtn = cardBtn('검토 시작', onRun, 'btn--primary');
+    startBtn.classList.add('multi-start-btn');
     bar.append(summary, status, startBtn);
 
     buildRunBar.startBtn = startBtn;
@@ -554,31 +592,35 @@ export function renderMulti(root) {
     return bar;
   }
 
-  function buildSettingsDrawer() {
-    const overlay = div('settings-overlay');
-    const drawer = div('settings-drawer');
-    const header = div('settings-drawer__header');
+  function buildSettingsModal() {
+    const overlay = div('modal-overlay');
+    const modal = div('modal');
+    const header = div('modal__header');
     const title = document.createElement('div');
-    title.className = 'settings-title';
+    title.className = 'modal__title';
     const badge = document.createElement('span');
     badge.className = 'chip chip--warn';
     badge.style.display = 'none';
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
-    closeBtn.className = 'btn-outline settings-close';
+    closeBtn.className = 'btn btn--ghost modal__close';
     closeBtn.textContent = '✕';
     header.append(title, badge, closeBtn);
 
-    const body = div('settings-drawer__body');
-    const footer = div('settings-drawer__footer');
+    const body = div('modal__body');
+    const form = div('modal__form');
+    const help = div('modal__help');
+    body.append(form, help);
+
+    const footer = div('modal__footer');
     const footerBtn = document.createElement('button');
     footerBtn.type = 'button';
-    footerBtn.className = 'btn-primary';
+    footerBtn.className = 'btn btn--ghost';
     footerBtn.textContent = '닫기';
     footer.append(footerBtn);
 
-    drawer.append(header, body, footer);
-    overlay.append(drawer);
+    modal.append(header, body, footer);
+    overlay.append(modal);
 
     overlay.addEventListener('click', (event) => {
       if (event.target === overlay) closeSettings();
@@ -589,11 +631,12 @@ export function renderMulti(root) {
       if (event.key === 'Escape') closeSettings();
     });
 
-    buildSettingsDrawer.overlay = overlay;
-    buildSettingsDrawer.drawer = drawer;
-    buildSettingsDrawer.title = title;
-    buildSettingsDrawer.badge = badge;
-    buildSettingsDrawer.body = body;
+    buildSettingsModal.overlay = overlay;
+    buildSettingsModal.modal = modal;
+    buildSettingsModal.title = title;
+    buildSettingsModal.badge = badge;
+    buildSettingsModal.form = form;
+    buildSettingsModal.help = help;
     return overlay;
   }
 
@@ -634,13 +677,29 @@ export function renderMulti(root) {
     return { field, input };
   }
 
-  function cardBtn(label, onClick) {
+  function cardBtn(label, onClick, variant = 'btn--secondary') {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'btn-outline';
+    btn.className = `btn ${variant}`;
     btn.textContent = label;
     if (onClick) btn.addEventListener('click', onClick);
     return btn;
+  }
+
+  function createEmptyState(message, actionLabel, onAction) {
+    const wrap = div('empty-state');
+    const text = document.createElement('p');
+    text.textContent = message;
+    wrap.append(text);
+    if (actionLabel && onAction) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn--secondary';
+      btn.textContent = actionLabel;
+      btn.addEventListener('click', onAction);
+      wrap.append(btn);
+    }
+    return wrap;
   }
 
   function toggleListValue(arr, value, on) {
@@ -669,10 +728,10 @@ export function renderMulti(root) {
   }
 
   function syncFeatureRow(key) {
-    const row = page.querySelector(`.multi-toggle-row[data-key="${key}"]`);
+    const row = page.querySelector(`.feature-row[data-key="${key}"]`);
     if (!row) return;
     const exportBtn = row.querySelector('button.export-btn');
-    const statusChip = row.querySelector('.chip');
+    const statusChip = row.querySelector('.feature-chip');
     const resultChip = row.querySelector('.chip--result');
     const res = state.results[key];
     exportBtn.disabled = state.busy || res.stale || res.count === 0;
@@ -764,7 +823,7 @@ export function renderMulti(root) {
     inputs.forEach((el) => {
       if (el.classList.contains('multi-start-btn')) return;
       if (on) el.disabled = true;
-      else if (!el.classList.contains('btn-primary')) el.disabled = false;
+      else if (!el.classList.contains('btn--primary')) el.disabled = false;
     });
     if (!on) renderRvtList();
   }
@@ -783,27 +842,29 @@ export function renderMulti(root) {
 
   function openSettings(key, title) {
     const config = state.features[key];
-    if (!buildSettingsDrawer.body) return;
-    state.ui.settingsOpen = true;
+    if (!buildSettingsModal.form) return;
+    state.ui.modalOpen = true;
     state.ui.activeFeatureKey = key;
     state.ui.activeFeatureTitle = title || '';
-    buildSettingsDrawer.title.textContent = `${title || ''} 설정`;
-    const readiness = getFeatureReadiness(key, config);
-    if (buildSettingsDrawer.badge) {
-      buildSettingsDrawer.badge.textContent = readiness.label;
-      buildSettingsDrawer.badge.className = `chip ${readiness.className}`;
-      buildSettingsDrawer.badge.style.display = readiness.className === 'chip--warn' ? 'inline-flex' : 'none';
+    buildSettingsModal.title.textContent = `${title || ''} 설정`;
+    const readiness = key === 'common' ? { label: '설정', className: 'chip--ok' } : getFeatureReadiness(key, config);
+    if (buildSettingsModal.badge) {
+      buildSettingsModal.badge.textContent = readiness.label;
+      buildSettingsModal.badge.className = `chip ${readiness.className}`;
+      buildSettingsModal.badge.style.display = readiness.className === 'chip--warn' ? 'inline-flex' : 'none';
     }
-    buildSettingsDrawer.body.innerHTML = '';
+    buildSettingsModal.form.innerHTML = '';
+    buildSettingsModal.help.innerHTML = '';
     const panel = getFeaturePanel(key);
-    if (panel) buildSettingsDrawer.body.append(panel);
-    buildSettingsDrawer.overlay.classList.add('is-open');
+    if (panel) buildSettingsModal.form.append(panel);
+    renderHelp(key, title);
+    buildSettingsModal.overlay.classList.add('is-open');
   }
 
   function closeSettings() {
-    if (!buildSettingsDrawer.overlay) return;
-    state.ui.settingsOpen = false;
-    buildSettingsDrawer.overlay.classList.remove('is-open');
+    if (!buildSettingsModal.overlay) return;
+    state.ui.modalOpen = false;
+    buildSettingsModal.overlay.classList.remove('is-open');
   }
 
   function getFeaturePanel(key) {
@@ -844,17 +905,17 @@ export function renderMulti(root) {
   }
 
   function updateDrawerBadge(key) {
-    if (!state.ui.settingsOpen || state.ui.activeFeatureKey !== key || !buildSettingsDrawer.badge) return;
+    if (!state.ui.modalOpen || state.ui.activeFeatureKey !== key || !buildSettingsModal.badge) return;
     const readiness = getFeatureReadiness(key, state.features[key]);
-    buildSettingsDrawer.badge.textContent = readiness.label;
-    buildSettingsDrawer.badge.className = `chip ${readiness.className}`;
-    buildSettingsDrawer.badge.style.display = readiness.className === 'chip--warn' ? 'inline-flex' : 'none';
+    buildSettingsModal.badge.textContent = readiness.label;
+    buildSettingsModal.badge.className = `chip ${readiness.className}`;
+    buildSettingsModal.badge.style.display = readiness.className === 'chip--warn' ? 'inline-flex' : 'none';
   }
 
   function updateFeatureSummary(key) {
-    const row = page.querySelector(`.multi-toggle-row[data-key="${key}"]`);
+    const row = page.querySelector(`.feature-row[data-key="${key}"]`);
     if (!row) return;
-    const summary = row.querySelector('.feature-summary');
+    const summary = row.querySelector('.feature-row__summary');
     if (!summary) return;
     summary.textContent = buildFeatureSummary(key);
     updateDrawerBadge(key);
@@ -893,5 +954,84 @@ export function renderMulti(root) {
       return `Unit=${feature.unit}`;
     }
     return '';
+  }
+
+  function buildCommonSummary() {
+    const extraCount = state.common.extraParams ? state.common.extraParams.split(',').filter((v) => v.trim()).length : 0;
+    const filterText = state.common.targetFilter ? state.common.targetFilter : '필터 없음';
+    const excludeText = state.common.excludeEndDummy ? 'Dummy 제외' : 'Dummy 포함';
+    return `extra=${extraCount} / ${filterText} / ${excludeText}`;
+  }
+
+  function updateCommonSummary(el) {
+    if (el) {
+      el.textContent = buildCommonSummary();
+    }
+    updateFeatureSummary('connector');
+  }
+
+  function renderHelp(key, title) {
+    const help = buildSettingsModal.help;
+    if (!help) return;
+    const helpTitle = document.createElement('strong');
+    helpTitle.textContent = title || '설정 안내';
+    const list = document.createElement('ul');
+    list.className = 'help-list';
+    getHelpItems(key).forEach((text) => {
+      const item = document.createElement('li');
+      item.textContent = text;
+      list.append(item);
+    });
+    help.append(helpTitle, list);
+  }
+
+  function getHelpItems(key) {
+    if (key === 'common') {
+      return [
+        '추가 Parameter 값은 콤마로 구분해 입력합니다.',
+        '검토 대상 필터는 “PM1=Value” 형식으로 입력합니다.',
+        'Dummy/End_ 패밀리 제외 여부를 설정합니다.'
+      ];
+    }
+    if (key === 'connector') {
+      return [
+        '허용범위는 연결 판단 기준 거리입니다.',
+        '단위는 inch/mm 중 선택 가능합니다.',
+        '파라미터는 Comments 등 대상 값을 지정합니다.'
+      ];
+    }
+    if (key === 'pms') {
+      return [
+        'ND Round는 반올림 자리수입니다.',
+        'tol(mm)은 비교 허용 오차입니다.',
+        'PMS 미등록 시 검토가 진행되지 않습니다.'
+      ];
+    }
+    if (key === 'guid') {
+      return [
+        '패밀리/Annotation 포함 여부를 선택합니다.',
+        '공유 파라미터 GUID 일치 여부를 검토합니다.'
+      ];
+    }
+    if (key === 'paramprop') {
+      return [
+        '타겟 그룹을 선택한 뒤 파라미터를 체크합니다.',
+        '선택이 0개면 설정 필요 상태가 됩니다.',
+        'Dummy 제외 옵션으로 제외 여부를 설정합니다.'
+      ];
+    }
+    if (key === 'familylink') {
+      return [
+        '공유 파라미터 목록에서 대상 항목을 선택합니다.',
+        '목록이 비어 있으면 Shared Parameter 등록이 필요합니다.'
+      ];
+    }
+    if (key === 'points') {
+      return [
+        '좌표 추출 단위를 선택합니다.',
+        'Decimal Feet 또는 Meter를 지원합니다.'
+      ];
+    }
+    return [];
   }
 }
