@@ -1,5 +1,6 @@
 Imports System
 Imports System.Collections.Generic
+Imports System.IO
 Imports System.Linq
 Imports Autodesk.Revit.DB
 Imports Autodesk.Revit.DB.Mechanical
@@ -48,177 +49,8 @@ Namespace Services
                 Return rows
             End If
             Dim doc = uidoc.Document
-            Dim normalizedExtras = NormalizeExtraParams(extraParams)
-            Dim extraCache As New Dictionary(Of Integer, Dictionary(Of String, String))()
-            Dim filter = ParseTargetFilter(targetFilter)
-
-            Log($"시작 tolFt={tolFt:0.###}, param='{param}', extra={String.Join(",", normalizedExtras)}, targetFilter='{targetFilter}', excludeEndDummy={excludeEndDummy}")
-
-            ' 1) 커넥터 있는 요소 수집 (Command 버전 기준)
-            Dim elems = CollectElementsWithConnectors(doc, filter, excludeEndDummy)
-            Log($"수집 요소: {elems.Count}")
-
-            If elems.Count = 0 Then
-                Log("커넥터를 가진 요소가 없습니다.")
-                Return rows
-            End If
-
-            Dim allowedIds As HashSet(Of Integer) = New HashSet(Of Integer)(elems.Select(Function(e) e.Id.IntegerValue))
-
-            ' 요소별 커넥터 매핑
-            Dim elemConns As New Dictionary(Of Integer, List(Of Connector))()
-            For Each el In elems
-                elemConns(el.Id.IntegerValue) = GetConnectors(el)
-            Next
-
-            Dim totalElem As Integer = Math.Max(1, elems.Count)
-            Dim lastSentPct As Double = -1
-
-            ' 모든 커넥터 좌표 버킷 구성 (1ft 셀)
-            Dim allConnPoints As New List(Of Tuple(Of Integer, XYZ, Connector))()
-            For Each kv In elemConns
-                For Each c In kv.Value
-                    allConnPoints.Add(Tuple.Create(kv.Key, c.Origin, c))
-                Next
-            Next
-            Dim buckets = BuildGrid(allConnPoints)
-            Log($"버킷 수: {buckets.Count}")
-
-            ' 후보 비교 (Command 로직)
-            For i As Integer = 0 To elems.Count - 1
-                Dim el = elems(i)
-                Dim baseId = el.Id.IntegerValue
-                Dim conns = elemConns(baseId)
-                Dim connTotal As Integer = 1
-                If conns IsNot Nothing Then connTotal = Math.Max(1, conns.Count)
-                Dim j As Integer = 0
-                For Each c In conns
-                    j += 1
-                    Dim found As Element = Nothing
-                    Dim distFt As Double = 0
-                    Dim connType As String = ""
-
-                    ' 1) 실제 연결
-                    If c.IsConnected Then
-                        For Each r As Connector In c.AllRefs.Cast(Of Connector)()
-                            If r?.Owner Is Nothing Then Continue For
-                            If r.Owner.Id.IntegerValue = baseId Then Continue For
-                            If TypeOf r.Owner Is MEPSystem Then Continue For
-                            If Not allowedIds.Contains(r.Owner.Id.IntegerValue) Then Continue For
-                            found = r.Owner
-                            connType = "Physical(커넥터 연결 됨)"
-                            Exit For
-                        Next
-                    End If
-
-                    ' 2) 근접 후보 - 최단거리 선정
-                    If found Is Nothing Then
-                        Dim key = BucketKey(c.Origin)
-                        Dim bestOtherId As Integer = 0
-                        Dim bestDistFt As Double = 0.0
-
-                        For dx = -1 To 1
-                            For dy = -1 To 1
-                                For dz = -1 To 1
-                                    Dim nbKey = Tuple.Create(key.Item1 + dx, key.Item2 + dy, key.Item3 + dz)
-                                    If Not buckets.ContainsKey(nbKey) Then Continue For
-
-                                    For Each nb In buckets(nbKey)
-                                        Dim otherId = nb.Item1
-                                        If otherId = baseId Then Continue For
-
-                                        Dim d = c.Origin.DistanceTo(nb.Item2)
-                                        If d > tolFt Then Continue For
-
-                                        If bestOtherId = 0 OrElse d < bestDistFt Then
-                                            bestOtherId = otherId
-                                            bestDistFt = d
-                                        End If
-                                    Next
-                                Next
-                            Next
-                        Next
-
-                        If bestOtherId <> 0 Then
-                            found = doc.GetElement(New ElementId(bestOtherId))
-                            distFt = bestDistFt
-                            connType = "Proximity(커넥터 연결 필요)"
-                        End If
-                    End If
-
-                    If String.IsNullOrEmpty(connType) Then connType = "연결 대상 객체 없음"
-
-                    Dim distInch As Double = Math.Round(distFt * 12.0, 2)
-                    Dim info1 = GetParamInfo(el, param)
-                    Dim info2 As ParamInfo = If(found IsNot Nothing, GetParamInfo(found, param), New ParamInfo() With {.HasValue = False, .Text = ""})
-
-                    Dim status As String
-
-                    If found Is Nothing Then
-                        status = "연결 대상 객체 없음"
-                    Else
-                        If Not info1.HasValue AndAlso Not info2.HasValue Then
-                            status = "Match"
-                        ElseIf String.Equals(info1.Text, info2.Text, StringComparison.OrdinalIgnoreCase) Then
-                            status = "Match"
-                        Else
-                            status = "Mismatch"
-                        End If
-                    End If
-
-                    Dim v1 As String = info1.Text
-                    Dim v2 As String = info2.Text
-
-                    Dim extras1 = GetExtraValues(el, normalizedExtras, extraCache)
-                    Dim extras2 = GetExtraValues(found, normalizedExtras, extraCache)
-
-                    Dim shouldAdd As Boolean = False
-                    If String.Equals(status, "Mismatch", StringComparison.OrdinalIgnoreCase) Then
-                        shouldAdd = True
-                    ElseIf connType.IndexOf("Proximity", StringComparison.OrdinalIgnoreCase) >= 0 OrElse String.Equals(connType, "Near", StringComparison.OrdinalIgnoreCase) Then
-                        shouldAdd = True
-                    ElseIf String.Equals(status, "연결 대상 객체 없음", StringComparison.OrdinalIgnoreCase) Then
-                        shouldAdd = True
-                    End If
-
-                    If shouldAdd Then
-                        Dim row = BuildRow(el, found, distInch, connType, param, v1, v2, status, normalizedExtras, extras1, extras2)
-                        rows.Add(row)
-                    End If
-
-                    If progress IsNot Nothing Then
-                        Dim baseFrac As Double = CDbl(i) / CDbl(totalElem)
-                        Dim withinFrac As Double = (CDbl(j) / CDbl(connTotal)) / CDbl(totalElem)
-                        Dim overall As Double = baseFrac + withinFrac
-                        Dim pct As Double = Math.Round(overall * 1000.0R) / 10.0R
-                        If (i < totalElem - 1) OrElse (j < connTotal) Then
-                            If pct >= 100.0R Then pct = 99.9R
-                        End If
-                        If pct >= lastSentPct + 0.1R OrElse (i = totalElem - 1 AndAlso j = connTotal) Then
-                            lastSentPct = pct
-                            progress(pct, $"커넥터 진단 중... ({i + 1}/{totalElem})  커넥터 {j}/{connTotal}")
-                        End If
-                    End If
-                Next
-            Next
-            If progress IsNot Nothing Then
-                progress(100.0R, "완료")
-            End If
-
-            ' 정렬 및 샘플 로그
-            rows = rows.OrderBy(Function(r) ToDouble(r("Distance (inch)"))) _
-                       .ThenBy(Function(r) ToInt(r("Id1"))) _
-                       .ThenBy(Function(r) ToInt(r("Id2"))) _
-                       .ToList()
-
-            If rows.Count > 0 Then
-                Dim s = rows(0)
-                Log($"샘플: Id1={s("Id1")}, Id2={s("Id2")}, d(in)={s("Distance (inch)")}, type={s("ConnectionType")}, v1='{s("Value1")}', v2='{s("Value2")}', status={s("Status")}")
-            Else
-                Log("최종 rows=0 (근접도/연결 모두 해당 없음)")
-            End If
-
-            Return rows
+            Dim fileLabel = BuildFileLabel(doc)
+            Return RunCore(doc, tolFt, param, extraParams, targetFilter, excludeEndDummy, progress, fileLabel)
         End Function
 
         Public Shared Function RunOnDocument(doc As Document,
@@ -229,176 +61,24 @@ Namespace Services
                                              excludeEndDummy As Boolean,
                                              Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
             LastDebug = New List(Of String)()
-            Dim rows As New List(Of Dictionary(Of String, Object))()
-
             If doc Is Nothing Then
                 Log("Document 없음")
-                Return rows
+                Return New List(Of Dictionary(Of String, Object))()
             End If
-            Dim normalizedExtras = NormalizeExtraParams(extraParams)
-            Dim extraCache As New Dictionary(Of Integer, Dictionary(Of String, String))()
-            Dim filter = ParseTargetFilter(targetFilter)
+            Dim fileLabel = BuildFileLabel(doc)
+            Return RunCore(doc, tolFt, param, extraParams, targetFilter, excludeEndDummy, progress, fileLabel)
+        End Function
 
-            Log($"시작 tolFt={tolFt:0.###}, param='{param}', extra={String.Join(",", normalizedExtras)}, targetFilter='{targetFilter}', excludeEndDummy={excludeEndDummy}")
-
-            Dim elems = CollectElementsWithConnectors(doc, filter, excludeEndDummy)
-            Log($"수집 요소: {elems.Count}")
-
-            If elems.Count = 0 Then
-                Log("커넥터를 가진 요소가 없습니다.")
-                Return rows
-            End If
-
-            Dim allowedIds As HashSet(Of Integer) = New HashSet(Of Integer)(elems.Select(Function(e) e.Id.IntegerValue))
-
-            Dim elemConns As New Dictionary(Of Integer, List(Of Connector))()
-            For Each el In elems
-                elemConns(el.Id.IntegerValue) = GetConnectors(el)
-            Next
-
-            Dim totalElem As Integer = Math.Max(1, elems.Count)
-            Dim lastSentPct As Double = -1
-
-            Dim allConnPoints As New List(Of Tuple(Of Integer, XYZ, Connector))()
-            For Each kv In elemConns
-                For Each c In kv.Value
-                    allConnPoints.Add(Tuple.Create(kv.Key, c.Origin, c))
-                Next
-            Next
-            Dim buckets = BuildGrid(allConnPoints)
-            Log($"버킷 수: {buckets.Count}")
-
-            For i As Integer = 0 To elems.Count - 1
-                Dim el = elems(i)
-                Dim baseId = el.Id.IntegerValue
-                Dim conns = elemConns(baseId)
-                Dim connTotal As Integer = 1
-                If conns IsNot Nothing Then connTotal = Math.Max(1, conns.Count)
-                Dim j As Integer = 0
-                For Each c In conns
-                    j += 1
-                    Dim found As Element = Nothing
-                    Dim distFt As Double = 0
-                    Dim connType As String = ""
-
-                    If c.IsConnected Then
-                        For Each r As Connector In c.AllRefs.Cast(Of Connector)()
-                            If r?.Owner Is Nothing Then Continue For
-                            If r.Owner.Id.IntegerValue = baseId Then Continue For
-                            If TypeOf r.Owner Is MEPSystem Then Continue For
-                            If Not allowedIds.Contains(r.Owner.Id.IntegerValue) Then Continue For
-                            found = r.Owner
-                            connType = "Physical(커넥터 연결 됨)"
-                            Exit For
-                        Next
-                    End If
-
-                    If found Is Nothing Then
-                        Dim key = BucketKey(c.Origin)
-                        Dim bestOtherId As Integer = 0
-                        Dim bestDistFt As Double = 0.0
-
-                        For dx = -1 To 1
-                            For dy = -1 To 1
-                                For dz = -1 To 1
-                                    Dim nbKey = Tuple.Create(key.Item1 + dx, key.Item2 + dy, key.Item3 + dz)
-                                    If Not buckets.ContainsKey(nbKey) Then Continue For
-
-                                    For Each nb In buckets(nbKey)
-                                        Dim otherId = nb.Item1
-                                        If otherId = baseId Then Continue For
-
-                                        Dim d = c.Origin.DistanceTo(nb.Item2)
-                                        If d > tolFt Then Continue For
-
-                                        If bestOtherId = 0 OrElse d < bestDistFt Then
-                                            bestOtherId = otherId
-                                            bestDistFt = d
-                                        End If
-                                    Next
-                                Next
-                            Next
-                        Next
-
-                        If bestOtherId <> 0 Then
-                            found = doc.GetElement(New ElementId(bestOtherId))
-                            distFt = bestDistFt
-                            connType = "Proximity(커넥터 연결 필요)"
-                        End If
-                    End If
-
-                    If String.IsNullOrEmpty(connType) Then connType = "연결 대상 객체 없음"
-
-                    Dim distInch As Double = Math.Round(distFt * 12.0, 2)
-                    Dim info1 = GetParamInfo(el, param)
-                    Dim info2 As ParamInfo = If(found IsNot Nothing, GetParamInfo(found, param), New ParamInfo() With {.HasValue = False, .Text = ""})
-
-                    Dim status As String
-
-                    If found Is Nothing Then
-                        status = "연결 대상 객체 없음"
-                    Else
-                        If Not info1.HasValue AndAlso Not info2.HasValue Then
-                            status = "Match"
-                        ElseIf String.Equals(info1.Text, info2.Text, StringComparison.OrdinalIgnoreCase) Then
-                            status = "Match"
-                        Else
-                            status = "Mismatch"
-                        End If
-                    End If
-
-                    Dim v1 As String = info1.Text
-                    Dim v2 As String = info2.Text
-
-                    Dim extras1 = GetExtraValues(el, normalizedExtras, extraCache)
-                    Dim extras2 = GetExtraValues(found, normalizedExtras, extraCache)
-
-                    Dim shouldAdd As Boolean = False
-                    If String.Equals(status, "Mismatch", StringComparison.OrdinalIgnoreCase) Then
-                        shouldAdd = True
-                    ElseIf connType.IndexOf("Proximity", StringComparison.OrdinalIgnoreCase) >= 0 OrElse String.Equals(connType, "Near", StringComparison.OrdinalIgnoreCase) Then
-                        shouldAdd = True
-                    ElseIf String.Equals(status, "연결 대상 객체 없음", StringComparison.OrdinalIgnoreCase) Then
-                        shouldAdd = True
-                    End If
-
-                    If shouldAdd Then
-                        Dim row = BuildRow(el, found, distInch, connType, param, v1, v2, status, normalizedExtras, extras1, extras2)
-                        rows.Add(row)
-                    End If
-
-                    If progress IsNot Nothing Then
-                        Dim baseFrac As Double = CDbl(i) / CDbl(totalElem)
-                        Dim withinFrac As Double = (CDbl(j) / CDbl(connTotal)) / CDbl(totalElem)
-                        Dim overall As Double = baseFrac + withinFrac
-                        Dim pct As Double = Math.Round(overall * 1000.0R) / 10.0R
-                        If (i < totalElem - 1) OrElse (j < connTotal) Then
-                            If pct >= 100.0R Then pct = 99.9R
-                        End If
-                        If pct >= lastSentPct + 0.1R OrElse (i = totalElem - 1 AndAlso j = connTotal) Then
-                            lastSentPct = pct
-                            progress(pct, $"커넥터 진단 중... ({i + 1}/{totalElem})  커넥터 {j}/{connTotal}")
-                        End If
-                    End If
-                Next
-            Next
-            If progress IsNot Nothing Then
-                progress(100.0R, "완료")
-            End If
-
-            rows = rows.OrderBy(Function(r) ToDouble(r("Distance (inch)"))) _
-                       .ThenBy(Function(r) ToInt(r("Id1"))) _
-                       .ThenBy(Function(r) ToInt(r("Id2"))) _
-                       .ToList()
-
-            If rows.Count > 0 Then
-                Dim s = rows(0)
-                Log($"샘플: Id1={s("Id1")}, Id2={s("Id2")}, d(in)={s("Distance (inch)")}, type={s("ConnectionType")}, v1='{s("Value1")}', v2='{s("Value2")}', status={s("Status")}")
-            Else
-                Log("최종 rows=0 (근접도/연결 모두 해당 없음)")
-            End If
-
-            Return rows
+        Public Shared Function RunOnDocument(doc As Document,
+                                             tol As Double,
+                                             unit As String,
+                                             paramName As String,
+                                             extraParams As IEnumerable(Of String),
+                                             targetFilter As String,
+                                             excludeEndDummy As Boolean,
+                                             Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
+            Dim tolFt As Double = ToTolFt(tol, unit)
+            Return RunOnDocument(doc, tolFt, paramName, extraParams, targetFilter, excludeEndDummy, progress)
         End Function
 
         ' 4-인자: tol 은 unit 기준(mm/inch/ft) → 내부에서 ft 로 환산 후 3-인자 호출
@@ -411,26 +91,200 @@ Namespace Services
         End Function
 
         Public Shared Function Run(app As UIApplication, tol As Double, unit As String, paramName As String, extraParams As IEnumerable(Of String), targetFilter As String, excludeEndDummy As Boolean, Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
-            Dim tolFt As Double
-            If String.Equals(unit, "mm", StringComparison.OrdinalIgnoreCase) Then
-                tolFt = tol / 304.8
-            ElseIf String.Equals(unit, "inch", StringComparison.OrdinalIgnoreCase) OrElse String.Equals(unit, "in", StringComparison.OrdinalIgnoreCase) Then
-                tolFt = tol / 12.0
-            Else
-                tolFt = tol ' ft 가정
-            End If
+            Dim tolFt As Double = ToTolFt(tol, unit)
             Return Run(app, tolFt, paramName, extraParams, targetFilter, excludeEndDummy, progress)
+        End Function
+
+        Private Shared Function RunCore(doc As Document,
+                                        tolFt As Double,
+                                        param As String,
+                                        extraParams As IEnumerable(Of String),
+                                        targetFilter As String,
+                                        excludeEndDummy As Boolean,
+                                        progress As Action(Of Double, String),
+                                        fileLabel As String) As List(Of Dictionary(Of String, Object))
+            Dim rows As New List(Of Dictionary(Of String, Object))()
+            If doc Is Nothing Then
+                Log("Document 없음")
+                Return rows
+            End If
+
+            Dim normalizedExtras = NormalizeExtraParams(extraParams)
+            Dim extraCache As New Dictionary(Of Integer, Dictionary(Of String, String))()
+            Dim filter = ParseTargetFilter(targetFilter)
+
+            Log($"DOC={fileLabel}, tolFt={tolFt:0.###}, param='{param}', extra={String.Join(",", normalizedExtras)}, targetFilter='{targetFilter}', excludeEndDummy={excludeEndDummy}")
+
+            Dim elems = CollectElementsWithConnectors(doc, filter, excludeEndDummy)
+            Log($"수집 요소: {elems.Count}")
+
+            If elems.Count = 0 Then
+                Log("커넥터를 가진 요소가 없습니다.")
+                Return rows
+            End If
+
+            Dim allowedIds As HashSet(Of Integer) = New HashSet(Of Integer)(elems.Select(Function(e) e.Id.IntegerValue))
+
+            Dim elemConns As New Dictionary(Of Integer, List(Of Connector))()
+            For Each el In elems
+                elemConns(el.Id.IntegerValue) = GetConnectors(el)
+            Next
+
+            Dim totalElem As Integer = Math.Max(1, elems.Count)
+            Dim lastSentPct As Double = -1
+
+            Dim allConnPoints As New List(Of Tuple(Of Integer, XYZ, Connector))()
+            For Each kv In elemConns
+                For Each c In kv.Value
+                    allConnPoints.Add(Tuple.Create(kv.Key, c.Origin, c))
+                Next
+            Next
+            Dim buckets = BuildGrid(allConnPoints)
+            Log($"버킷 수: {buckets.Count}")
+
+            For i As Integer = 0 To elems.Count - 1
+                Dim el = elems(i)
+                Dim baseId = el.Id.IntegerValue
+                Dim conns = elemConns(baseId)
+                Dim connTotal As Integer = 1
+                If conns IsNot Nothing Then connTotal = Math.Max(1, conns.Count)
+                Dim j As Integer = 0
+                For Each c In conns
+                    j += 1
+                    Dim found As Element = Nothing
+                    Dim distFt As Double = 0
+                    Dim connType As String = ""
+
+                    If c.IsConnected Then
+                        For Each r As Connector In c.AllRefs.Cast(Of Connector)()
+                            If r?.Owner Is Nothing Then Continue For
+                            If r.Owner.Id.IntegerValue = baseId Then Continue For
+                            If TypeOf r.Owner Is MEPSystem Then Continue For
+                            If Not allowedIds.Contains(r.Owner.Id.IntegerValue) Then Continue For
+                            found = r.Owner
+                            connType = "Physical(커넥터 연결 됨)"
+                            Exit For
+                        Next
+                    End If
+
+                    If found Is Nothing Then
+                        Dim key = BucketKey(c.Origin)
+                        Dim bestOtherId As Integer = 0
+                        Dim bestDistFt As Double = 0.0
+
+                        For dx = -1 To 1
+                            For dy = -1 To 1
+                                For dz = -1 To 1
+                                    Dim nbKey = Tuple.Create(key.Item1 + dx, key.Item2 + dy, key.Item3 + dz)
+                                    If Not buckets.ContainsKey(nbKey) Then Continue For
+
+                                    For Each nb In buckets(nbKey)
+                                        Dim otherId = nb.Item1
+                                        If otherId = baseId Then Continue For
+
+                                        Dim d = c.Origin.DistanceTo(nb.Item2)
+                                        If d > tolFt Then Continue For
+
+                                        If bestOtherId = 0 OrElse d < bestDistFt Then
+                                            bestOtherId = otherId
+                                            bestDistFt = d
+                                        End If
+                                    Next
+                                Next
+                            Next
+                        Next
+
+                        If bestOtherId <> 0 Then
+                            found = doc.GetElement(New ElementId(bestOtherId))
+                            distFt = bestDistFt
+                            connType = "Proximity(커넥터 연결 필요)"
+                        End If
+                    End If
+
+                    If String.IsNullOrEmpty(connType) Then connType = "연결 대상 객체 없음"
+
+                    Dim distInch As Double = Math.Round(distFt * 12.0, 2)
+                    Dim info1 = GetParamInfo(el, param)
+                    Dim info2 As ParamInfo = If(found IsNot Nothing, GetParamInfo(found, param), New ParamInfo() With {.HasValue = False, .Text = ""})
+
+                    Dim status As String
+
+                    If found Is Nothing Then
+                        status = "연결 대상 객체 없음"
+                    Else
+                        If Not info1.HasValue AndAlso Not info2.HasValue Then
+                            status = "Match"
+                        ElseIf String.Equals(info1.Text, info2.Text, StringComparison.OrdinalIgnoreCase) Then
+                            status = "Match"
+                        Else
+                            status = "Mismatch"
+                        End If
+                    End If
+
+                    Dim v1 As String = info1.Text
+                    Dim v2 As String = info2.Text
+
+                    Dim extras1 = GetExtraValues(el, normalizedExtras, extraCache)
+                    Dim extras2 = GetExtraValues(found, normalizedExtras, extraCache)
+
+                    Dim shouldAdd As Boolean = False
+                    If String.Equals(status, "Mismatch", StringComparison.OrdinalIgnoreCase) Then
+                        shouldAdd = True
+                    ElseIf connType.IndexOf("Proximity", StringComparison.OrdinalIgnoreCase) >= 0 OrElse String.Equals(connType, "Near", StringComparison.OrdinalIgnoreCase) Then
+                        shouldAdd = True
+                    ElseIf String.Equals(status, "연결 대상 객체 없음", StringComparison.OrdinalIgnoreCase) Then
+                        shouldAdd = True
+                    End If
+
+                    If shouldAdd Then
+                        Dim row = BuildRow(el, found, distInch, connType, param, v1, v2, status, normalizedExtras, extras1, extras2, fileLabel)
+                        rows.Add(row)
+                    End If
+
+                    If progress IsNot Nothing Then
+                        Dim baseFrac As Double = CDbl(i) / CDbl(totalElem)
+                        Dim withinFrac As Double = (CDbl(j) / CDbl(connTotal)) / CDbl(totalElem)
+                        Dim overall As Double = baseFrac + withinFrac
+                        Dim pct As Double = Math.Round(overall * 1000.0R) / 10.0R
+                        If (i < totalElem - 1) OrElse (j < connTotal) Then
+                            If pct >= 100.0R Then pct = 99.9R
+                        End If
+                        If pct >= lastSentPct + 0.1R OrElse (i = totalElem - 1 AndAlso j = connTotal) Then
+                            lastSentPct = pct
+                            progress(pct, $"커넥터 진단 중... ({i + 1}/{totalElem})  커넥터 {j}/{connTotal}")
+                        End If
+                    End If
+                Next
+            Next
+            If progress IsNot Nothing Then
+                progress(100.0R, "완료")
+            End If
+
+            rows = rows.OrderBy(Function(r) ToDouble(r("Distance (inch)"))) _
+                       .ThenBy(Function(r) ToInt(r("Id1"))) _
+                       .ThenBy(Function(r) ToInt(r("Id2"))) _
+                       .ToList()
+
+            If rows.Count > 0 Then
+                Dim s = rows(0)
+                Log($"샘플: Id1={s("Id1")}, Id2={s("Id2")}, d(in)={s("Distance (inch)")}, type={s("ConnectionType")}, v1='{s("Value1")}', v2='{s("Value2")}', status={s("Status")}")
+            Else
+                Log("최종 rows=0 (근접도/연결 모두 해당 없음)")
+            End If
+
+            Return rows
         End Function
 
         ' --------- 내부 유틸 ---------
 
-        Private Shared Function BuildRow(e1 As Element, e2 As Element, distInch As Double, connType As String, param As String, v1 As String, v2 As String, status As String, extraNames As IList(Of String), extraVals1 As Dictionary(Of String, String), extraVals2 As Dictionary(Of String, String)) As Dictionary(Of String, Object)
+        Private Shared Function BuildRow(e1 As Element, e2 As Element, distInch As Double, connType As String, param As String, v1 As String, v2 As String, status As String, extraNames As IList(Of String), extraVals1 As Dictionary(Of String, String), extraVals2 As Dictionary(Of String, String), fileLabel As String) As Dictionary(Of String, Object)
             Dim cat1 As String = If(e1?.Category Is Nothing, "", e1.Category.Name)
             Dim cat2 As String = If(e2?.Category Is Nothing, "", e2.Category.Name)
             Dim fam1 As String = GetFamilyName(e1)
             Dim fam2 As String = GetFamilyName(e2)
 
             Dim row As New Dictionary(Of String, Object)(StringComparer.Ordinal) From {
+                {"File", fileLabel},
                 {"Id1", If(e1 IsNot Nothing, e1.Id.IntegerValue.ToString(), "0")},
                 {"Id2", If(e2 IsNot Nothing, e2.Id.IntegerValue.ToString(), "")},
                 {"Category1", cat1},
@@ -483,7 +337,28 @@ Namespace Services
                 Next
             Next
 
-            Return elems.Distinct().ToList()
+            Return elems.
+                GroupBy(Function(e) e.Id.IntegerValue).
+                Select(Function(g) g.First()).
+                ToList()
+        End Function
+
+        Private Shared Function ToTolFt(tol As Double, unit As String) As Double
+            If String.Equals(unit, "mm", StringComparison.OrdinalIgnoreCase) Then
+                Return tol / 304.8
+            End If
+            If String.Equals(unit, "inch", StringComparison.OrdinalIgnoreCase) OrElse String.Equals(unit, "in", StringComparison.OrdinalIgnoreCase) Then
+                Return tol / 12.0
+            End If
+            Return tol
+        End Function
+
+        Private Shared Function BuildFileLabel(doc As Document) As String
+            If doc Is Nothing Then Return String.Empty
+            If Not String.IsNullOrWhiteSpace(doc.PathName) Then
+                Return Path.GetFileName(doc.PathName)
+            End If
+            Return doc.Title
         End Function
 
         Private Shared Function HasConnectors(el As Element) As Boolean

@@ -252,8 +252,7 @@ NextItem:
                 stepIndex += 1
                 ReportMultiProgress(CalcStepPercent(basePct, stepIndex, steps), "커넥터 진단 실행 중", safeName)
                 Dim extras = ParseExtraParams(_multiRequest.Common.ExtraParams)
-                Dim tolFt As Double = ToFeet(_multiRequest.Connector.Tol, _multiRequest.Connector.Unit)
-                Dim rows = ConnectorDiagnosticsService.RunOnDocument(doc, tolFt, _multiRequest.Connector.Param, extras, _multiRequest.Common.TargetFilter, _multiRequest.Common.ExcludeEndDummy, Nothing)
+                Dim rows = ConnectorDiagnosticsService.RunOnDocument(doc, _multiRequest.Connector.Tol, _multiRequest.Connector.Unit, _multiRequest.Connector.Param, extras, _multiRequest.Common.TargetFilter, _multiRequest.Common.ExcludeEndDummy, Nothing)
                 If rows IsNot Nothing Then
                     For Each row In rows
                         If row IsNot Nothing Then row("File") = safeName
@@ -702,14 +701,6 @@ NextItem:
             Catch
             End Try
             Return opt
-        End Function
-
-        Private Shared Function ToFeet(value As Double, unit As String) As Double
-            Dim u = If(unit, "inch").Trim().ToLowerInvariant()
-            If u = "mm" OrElse u = "millimeter" OrElse u = "millimeters" Then
-                Return value / 304.8R
-            End If
-            Return value / 12.0R
         End Function
 
         Private Shared Function BuildConnectorHeaders(extras As IList(Of String)) As List(Of String)
