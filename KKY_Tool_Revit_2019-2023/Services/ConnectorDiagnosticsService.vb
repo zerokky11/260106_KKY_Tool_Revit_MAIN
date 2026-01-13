@@ -14,6 +14,7 @@ Namespace Services
     Public Class ConnectorDiagnosticsService
 
         Private Class ParamInfo
+            Public Property Exists As Boolean
             Public Property HasValue As Boolean
             Public Property Text As String
         End Class
@@ -132,6 +133,7 @@ Namespace Services
 
             Dim totalElem As Integer = Math.Max(1, elems.Count)
             Dim lastSentPct As Double = -1
+            Dim seenPairs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
 
             Dim allConnPoints As New List(Of Tuple(Of Integer, XYZ, Connector))()
             For Each kv In elemConns
@@ -160,7 +162,6 @@ Namespace Services
                             If r?.Owner Is Nothing Then Continue For
                             If r.Owner.Id.IntegerValue = baseId Then Continue For
                             If TypeOf r.Owner Is MEPSystem Then Continue For
-                            If Not allowedIds.Contains(r.Owner.Id.IntegerValue) Then Continue For
                             found = r.Owner
                             connType = "Physical(커넥터 연결 됨)"
                             Exit For
@@ -181,6 +182,9 @@ Namespace Services
                                     For Each nb In buckets(nbKey)
                                         Dim otherId = nb.Item1
                                         If otherId = baseId Then Continue For
+                                        If Not allowedIds.Contains(otherId) Then Continue For
+                                        If c.Domain <> nb.Item3.Domain Then Continue For
+                                        If c.ConnectorType <> nb.Item3.ConnectorType Then Continue For
 
                                         Dim d = c.Origin.DistanceTo(nb.Item2)
                                         If d > tolFt Then Continue For
@@ -205,14 +209,16 @@ Namespace Services
 
                     Dim distInch As Double = Math.Round(distFt * 12.0, 2)
                     Dim info1 = GetParamInfo(el, param)
-                    Dim info2 As ParamInfo = If(found IsNot Nothing, GetParamInfo(found, param), New ParamInfo() With {.HasValue = False, .Text = ""})
+                    Dim info2 As ParamInfo = If(found IsNot Nothing, GetParamInfo(found, param), New ParamInfo() With {.Exists = False, .HasValue = False, .Text = ""})
 
                     Dim status As String
 
                     If found Is Nothing Then
                         status = "연결 대상 객체 없음"
                     Else
-                        If Not info1.HasValue AndAlso Not info2.HasValue Then
+                        If Not info1.Exists OrElse Not info2.Exists Then
+                            status = "Shared Parameter 등록 필요"
+                        ElseIf Not info1.HasValue AndAlso Not info2.HasValue Then
                             status = "Match"
                         ElseIf String.Equals(info1.Text, info2.Text, StringComparison.OrdinalIgnoreCase) Then
                             status = "Match"
@@ -232,13 +238,30 @@ Namespace Services
                         shouldAdd = True
                     ElseIf connType.IndexOf("Proximity", StringComparison.OrdinalIgnoreCase) >= 0 OrElse String.Equals(connType, "Near", StringComparison.OrdinalIgnoreCase) Then
                         shouldAdd = True
+                    ElseIf String.Equals(status, "Shared Parameter 등록 필요", StringComparison.OrdinalIgnoreCase) Then
+                        shouldAdd = True
                     ElseIf String.Equals(status, "연결 대상 객체 없음", StringComparison.OrdinalIgnoreCase) Then
                         shouldAdd = True
                     End If
 
                     If shouldAdd Then
-                        Dim row = BuildRow(el, found, distInch, connType, param, v1, v2, status, normalizedExtras, extras1, extras2, fileLabel)
-                        rows.Add(row)
+                        Dim pairKey As String
+                        If found IsNot Nothing Then
+                            Dim id1 = baseId
+                            Dim id2 = found.Id.IntegerValue
+                            Dim minId = Math.Min(id1, id2)
+                            Dim maxId = Math.Max(id1, id2)
+                            pairKey = $"{minId}-{maxId}-{connType}-{status}"
+                        Else
+                            Dim ox = Math.Round(c.Origin.X, 4)
+                            Dim oy = Math.Round(c.Origin.Y, 4)
+                            Dim oz = Math.Round(c.Origin.Z, 4)
+                            pairKey = $"{baseId}-none-{connType}-{status}-{ox},{oy},{oz}"
+                        End If
+                        If seenPairs.Add(pairKey) Then
+                            Dim row = BuildRow(el, found, distInch, connType, param, v1, v2, status, normalizedExtras, extras1, extras2, fileLabel)
+                            rows.Add(row)
+                        End If
                     End If
 
                     If progress IsNot Nothing Then
@@ -412,16 +435,20 @@ Namespace Services
         End Function
 
         Private Shared Function GetParamInfo(el As Element, name As String) As ParamInfo
-            Dim info As New ParamInfo() With {.HasValue = False, .Text = ""}
+            Dim info As New ParamInfo() With {.Exists = False, .HasValue = False, .Text = ""}
 
             If el Is Nothing OrElse String.IsNullOrWhiteSpace(name) Then
                 Return info
             End If
 
-            Dim raw As String = ResolveParamText(el, name)
+            Dim p As Parameter = el.LookupParameter(name)
+            If p Is Nothing Then
+                Return info
+            End If
 
-            info.Text = raw
-            info.HasValue = (raw <> "")
+            info.Exists = True
+            info.HasValue = p.HasValue
+            info.Text = ResolveParamText(p)
             Return info
         End Function
 
@@ -429,8 +456,12 @@ Namespace Services
             If el Is Nothing OrElse String.IsNullOrWhiteSpace(name) Then Return ""
 
             Dim p As Parameter = el.LookupParameter(name)
-            If p Is Nothing OrElse Not p.HasValue Then Return ""
+            If p Is Nothing Then Return ""
+            Return ResolveParamText(p)
+        End Function
 
+        Private Shared Function ResolveParamText(p As Parameter) As String
+            If p Is Nothing OrElse Not p.HasValue Then Return ""
             Dim raw As String = Nothing
             Try
                 If p.StorageType = StorageType.[String] Then
