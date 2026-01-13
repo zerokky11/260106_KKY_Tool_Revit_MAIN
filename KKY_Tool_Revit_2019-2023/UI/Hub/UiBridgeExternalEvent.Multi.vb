@@ -807,7 +807,12 @@ NextItem:
         End Function
 
         Private Shared Function BuildPointHeaders(unit As String) As List(Of String)
-            Dim suffix As String = If(String.Equals(unit, "m", StringComparison.OrdinalIgnoreCase), "(m)", "(ft)")
+            Dim suffix As String = "(ft)"
+            If String.Equals(unit, "m", StringComparison.OrdinalIgnoreCase) Then
+                suffix = "(m)"
+            ElseIf String.Equals(unit, "mm", StringComparison.OrdinalIgnoreCase) Then
+                suffix = "(mm)"
+            End If
             Return New List(Of String) From {
                 "File",
                 $"ProjectPoint_E{suffix}", $"ProjectPoint_N{suffix}", $"ProjectPoint_Z{suffix}",
@@ -839,6 +844,9 @@ NextItem:
         Private Shared Function ConvertPoint(valueFt As Double, unit As String) As Double
             If String.Equals(unit, "m", StringComparison.OrdinalIgnoreCase) Then
                 Return Math.Round(valueFt * 0.3048R, 6)
+            End If
+            If String.Equals(unit, "mm", StringComparison.OrdinalIgnoreCase) Then
+                Return Math.Round(valueFt * 304.8R, 3)
             End If
             Return Math.Round(valueFt, 6)
         End Function

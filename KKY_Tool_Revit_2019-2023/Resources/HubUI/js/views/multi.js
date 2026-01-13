@@ -351,7 +351,8 @@ export function renderMulti(root) {
     const panel = div('multi-config');
     const unit = makeSelectField('단위', [
       { value: 'ft', label: 'Decimal Feet' },
-      { value: 'm', label: 'Meters (m)' }
+      { value: 'm', label: 'Meters (m)' },
+      { value: 'mm', label: 'Millimeters (mm)' }
     ]);
     unit.select.value = state.features.points.configDraft.unit;
     unit.select.addEventListener('change', () => {
@@ -839,7 +840,7 @@ export function renderMulti(root) {
     if (key === 'points') {
       return [
         '좌표 추출 단위를 선택합니다.',
-        'Decimal Feet 또는 Meter를 지원합니다.'
+        'Decimal Feet / Meter / Millimeter를 지원합니다.'
       ];
     }
     return [];
