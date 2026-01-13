@@ -3,6 +3,7 @@ import { onHost, post } from './core/bridge.js';
 import { updateTopMost, setActiveDocument, setDocList, renderTopbar } from './core/topbar.js';
 import { initLogConsole, toggleLogConsole, log } from './core/dom.js';
 import { renderHome } from './views/home.js';
+import { renderActiveMenu } from './views/activeMenu.js';
 import { renderDup } from './views/dup.js';
 import { renderConn } from './views/conn.js';
 import { renderExport } from './views/export.js';
@@ -99,6 +100,7 @@ function route() {
         case 'guid': return renderGuid(targetRoot);
         case 'familylink': return renderFamilyLink(targetRoot);
         case 'multi': return renderMulti(targetRoot);
+        case 'active-menu': return renderActiveMenu(targetRoot);
         default: return renderHome(targetRoot);
     }
 }

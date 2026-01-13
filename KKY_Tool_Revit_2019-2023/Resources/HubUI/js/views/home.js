@@ -14,7 +14,7 @@ export function renderHome(root) {
 
     const grid = div('home-choice-grid');
     grid.append(
-        buildCard('활성 문서 검토', '현재 열려있는 Revit 문서를 대상으로 빠르게 검토를 수행합니다.', 'dup'),
+        buildCard('활성 문서 검토', '현재 열려있는 Revit 문서를 대상으로 빠르게 검토를 수행합니다.', 'active-menu'),
         buildCard('다중 RVT 검토', '여러 RVT 파일을 등록하고 배치 검토 및 엑셀 추출을 실행합니다.', 'multi')
     );
 
@@ -26,9 +26,14 @@ export function renderHome(root) {
         card.type = 'button';
         card.className = 'home-choice-card';
         card.innerHTML = `
-            <h3>${title}</h3>
-            <p>${desc}</p>
-            <span class="home-choice-cta">바로가기</span>`;
+            <div class="home-choice-card__body">
+              <div>
+                <h3>${title}</h3>
+                <p>${desc}</p>
+              </div>
+              <span class="home-choice-card__icon">→</span>
+            </div>
+            <span class="home-choice-cta btn btn--primary">바로가기</span>`;
         card.addEventListener('click', () => { location.hash = `#${hash}`; });
         return card;
     }

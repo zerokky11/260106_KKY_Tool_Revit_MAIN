@@ -15,15 +15,15 @@ export function renderMulti(root) {
     rvtList: [],
     rvtChecked: new Set(),
     busy: false,
-    common: {
+    common: createConfigState({
       extraParams: '',
       targetFilter: '',
       excludeEndDummy: false
-    },
+    }),
     features: {
-      connector: { enabled: false, tol: 1.0, unit: 'inch', param: 'Comments' },
-      guid: { enabled: false, includeFamily: false, includeAnnotation: false },
-      points: { enabled: false, unit: 'ft' }
+      connector: createFeatureState({ tol: 1.0, unit: 'inch', param: 'Comments' }),
+      guid: createFeatureState({ includeFamily: false, includeAnnotation: false }),
+      points: createFeatureState({ unit: 'ft' })
     },
     results: {},
     ui: {
@@ -31,6 +31,7 @@ export function renderMulti(root) {
       activeFeatureKey: '',
       activeFeatureTitle: '',
       panels: {},
+      controls: {},
       lastProgressPct: 0
     }
   };
@@ -161,29 +162,31 @@ export function renderMulti(root) {
     const filter = makeField('검토 대상 필터', 'filter', 'ex) PM1=Value', 'text');
     const exclude = makeCheckboxField('End_ + Dummy 패밀리 제외');
 
-    extra.input.value = state.common.extraParams;
-    filter.input.value = state.common.targetFilter;
-    exclude.input.checked = state.common.excludeEndDummy;
+    const draft = state.common.configDraft;
+    extra.input.value = draft.extraParams;
+    filter.input.value = draft.targetFilter;
+    exclude.input.checked = draft.excludeEndDummy;
 
     extra.input.addEventListener('change', () => {
-      state.common.extraParams = extra.input.value;
-      markStale('connector');
+      state.common.configDraft.extraParams = extra.input.value;
+      markCommonDirty();
       updateCommonSummary(summary);
     });
     filter.input.addEventListener('change', () => {
-      state.common.targetFilter = filter.input.value;
-      markStale('connector');
+      state.common.configDraft.targetFilter = filter.input.value;
+      markCommonDirty();
       updateCommonSummary(summary);
     });
     exclude.input.addEventListener('change', () => {
-      state.common.excludeEndDummy = exclude.input.checked;
-      markStale('connector');
+      state.common.configDraft.excludeEndDummy = exclude.input.checked;
+      markCommonDirty();
       updateCommonSummary(summary);
     });
 
     fields.append(extra.field, filter.field, exclude.field);
     fields.classList.add('settings-panel', 'is-open');
     state.ui.panels.common = fields;
+    state.ui.controls.common = { extra, filter, exclude };
 
     return panel;
   }
@@ -196,7 +199,17 @@ export function renderMulti(root) {
     toggle.type = 'checkbox';
     toggle.className = 'feature-toggle';
     toggle.addEventListener('change', () => {
-      state.features[key].enabled = toggle.checked;
+      const feature = state.features[key];
+      feature.enabled = toggle.checked;
+      if (!toggle.checked) {
+        feature.applied = false;
+        feature.dirty = false;
+        resetDraftFromCommitted(key);
+      } else {
+        feature.applied = false;
+        feature.dirty = false;
+        openSettings(key, title);
+      }
       row.classList.toggle('is-active', toggle.checked);
       markStale(key);
       updateRunSummary();
@@ -248,6 +261,7 @@ export function renderMulti(root) {
     config.key = key;
     config.panel.classList.add('settings-panel', 'is-open');
     state.ui.panels[key] = config.panel;
+    state.ui.controls[key] = config.controls || {};
     syncFeatureRow(key);
     return row;
   }
@@ -288,49 +302,49 @@ export function renderMulti(root) {
   function buildConnectorConfig() {
     const panel = div('multi-config');
     const tol = makeField('허용범위', 'tol', '', 'number');
-    tol.input.value = state.features.connector.tol;
+    tol.input.value = state.features.connector.configDraft.tol;
     tol.input.addEventListener('change', () => {
-      state.features.connector.tol = parseFloat(tol.input.value || '1') || 1;
-      markStale('connector');
+      state.features.connector.configDraft.tol = parseFloat(tol.input.value || '1') || 1;
+      markFeatureDirty('connector');
     });
 
     const unit = makeSelectField('단위', [
       { value: 'inch', label: 'inch' },
       { value: 'mm', label: 'mm' }
     ]);
-    unit.select.value = state.features.connector.unit;
+    unit.select.value = state.features.connector.configDraft.unit;
     unit.select.addEventListener('change', () => {
-      state.features.connector.unit = unit.select.value;
-      markStale('connector');
+      state.features.connector.configDraft.unit = unit.select.value;
+      markFeatureDirty('connector');
     });
 
     const param = makeField('파라미터', 'param', 'Comments', 'text');
-    param.input.value = state.features.connector.param;
+    param.input.value = state.features.connector.configDraft.param;
     param.input.addEventListener('change', () => {
-      state.features.connector.param = param.input.value || 'Comments';
-      markStale('connector');
+      state.features.connector.configDraft.param = param.input.value || 'Comments';
+      markFeatureDirty('connector');
     });
 
     panel.append(tol.field, unit.field, param.field);
-    return { panel };
+    return { panel, controls: { tol, unit, param } };
   }
 
   function buildGuidConfig() {
     const panel = div('multi-config');
     const includeFamily = makeCheckboxField('패밀리 포함');
-    includeFamily.input.checked = state.features.guid.includeFamily;
+    includeFamily.input.checked = state.features.guid.configDraft.includeFamily;
     includeFamily.input.addEventListener('change', () => {
-      state.features.guid.includeFamily = includeFamily.input.checked;
-      markStale('guid');
+      state.features.guid.configDraft.includeFamily = includeFamily.input.checked;
+      markFeatureDirty('guid');
     });
     const includeAnno = makeCheckboxField('Annotation 패밀리 포함');
-    includeAnno.input.checked = state.features.guid.includeAnnotation;
+    includeAnno.input.checked = state.features.guid.configDraft.includeAnnotation;
     includeAnno.input.addEventListener('change', () => {
-      state.features.guid.includeAnnotation = includeAnno.input.checked;
-      markStale('guid');
+      state.features.guid.configDraft.includeAnnotation = includeAnno.input.checked;
+      markFeatureDirty('guid');
     });
     panel.append(includeFamily.field, includeAnno.field);
-    return { panel };
+    return { panel, controls: { includeFamily, includeAnno } };
   }
 
   function buildPointsConfig() {
@@ -339,13 +353,13 @@ export function renderMulti(root) {
       { value: 'ft', label: 'Decimal Feet' },
       { value: 'm', label: 'Meters (m)' }
     ]);
-    unit.select.value = state.features.points.unit;
+    unit.select.value = state.features.points.configDraft.unit;
     unit.select.addEventListener('change', () => {
-      state.features.points.unit = unit.select.value;
-      markStale('points');
+      state.features.points.configDraft.unit = unit.select.value;
+      markFeatureDirty('points');
     });
     panel.append(unit.field);
-    return { panel };
+    return { panel, controls: { unit } };
   }
 
   function buildRvtSection() {
@@ -469,11 +483,7 @@ export function renderMulti(root) {
     const badge = document.createElement('span');
     badge.className = 'chip chip--warn';
     badge.style.display = 'none';
-    const closeBtn = document.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.className = 'btn btn--ghost modal__close';
-    closeBtn.textContent = '✕';
-    header.append(title, badge, closeBtn);
+    header.append(title, badge);
 
     const body = div('modal__body');
     const form = div('modal__form');
@@ -481,23 +491,21 @@ export function renderMulti(root) {
     body.append(form, help);
 
     const footer = div('modal__footer');
-    const footerBtn = document.createElement('button');
-    footerBtn.type = 'button';
-    footerBtn.className = 'btn btn--ghost';
-    footerBtn.textContent = '닫기';
-    footer.append(footerBtn);
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn btn--ghost';
+    cancelBtn.textContent = '취소';
+    const applyBtn = document.createElement('button');
+    applyBtn.type = 'button';
+    applyBtn.className = 'btn btn--primary';
+    applyBtn.textContent = '적용';
+    footer.append(cancelBtn, applyBtn);
 
     modal.append(header, body, footer);
     overlay.append(modal);
 
-    overlay.addEventListener('click', (event) => {
-      if (event.target === overlay) closeSettings();
-    });
-    closeBtn.addEventListener('click', closeSettings);
-    footerBtn.addEventListener('click', closeSettings);
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') closeSettings();
-    });
+    cancelBtn.addEventListener('click', cancelSettings);
+    applyBtn.addEventListener('click', applySettings);
 
     buildSettingsModal.overlay = overlay;
     buildSettingsModal.modal = modal;
@@ -577,10 +585,10 @@ export function renderMulti(root) {
     exportBtn.title = exportBtn.disabled ? '결과가 없습니다.' : '';
 
     const feature = state.features[key];
-    const readiness = getFeatureReadiness(key, feature);
+    const readiness = getFeatureReadiness(feature);
     if (statusChip) {
       statusChip.textContent = readiness.label;
-      statusChip.className = `chip ${readiness.className}`;
+      statusChip.className = `chip ${readiness.className} feature-chip`;
       statusChip.classList.toggle('is-clickable', readiness.className === 'chip--warn');
     }
     if (resultChip) {
@@ -621,11 +629,11 @@ export function renderMulti(root) {
   function buildPayload() {
     return {
       rvtPaths: state.rvtList.slice(),
-      commonOptions: state.common,
+      commonOptions: state.common.configCommitted,
       features: {
-        connector: state.features.connector,
-        guid: state.features.guid,
-        points: state.features.points
+        connector: buildCommittedFeature('connector'),
+        guid: buildCommittedFeature('guid'),
+        points: buildCommittedFeature('points')
       }
     };
   }
@@ -656,13 +664,13 @@ export function renderMulti(root) {
   }
 
   function openSettings(key, title) {
-    const config = state.features[key];
+    const config = key === 'common' ? state.common : state.features[key];
     if (!buildSettingsModal.form) return;
     state.ui.modalOpen = true;
     state.ui.activeFeatureKey = key;
     state.ui.activeFeatureTitle = title || '';
     buildSettingsModal.title.textContent = `${title || ''} 설정`;
-    const readiness = key === 'common' ? { label: '설정', className: 'chip--ok' } : getFeatureReadiness(key, config);
+    const readiness = key === 'common' ? { label: '설정', className: 'chip--ok' } : getFeatureReadiness(config);
     if (buildSettingsModal.badge) {
       buildSettingsModal.badge.textContent = readiness.label;
       buildSettingsModal.badge.className = `chip ${readiness.className}`;
@@ -670,6 +678,8 @@ export function renderMulti(root) {
     }
     buildSettingsModal.form.innerHTML = '';
     buildSettingsModal.help.innerHTML = '';
+    resetDraftFromCommitted(key);
+    syncControlsFromDraft(key);
     const panel = getFeaturePanel(key);
     if (panel) buildSettingsModal.form.append(panel);
     renderHelp(key, title);
@@ -680,6 +690,28 @@ export function renderMulti(root) {
     if (!buildSettingsModal.overlay) return;
     state.ui.modalOpen = false;
     buildSettingsModal.overlay.classList.remove('is-open');
+  }
+
+  function applySettings() {
+    const key = state.ui.activeFeatureKey;
+    if (!key) return;
+    if (key === 'common') {
+      commitConfig(state.common);
+      updateCommonSummary();
+      markStale('connector');
+    } else {
+      commitConfig(state.features[key]);
+      markStale(key);
+    }
+    closeSettings();
+  }
+
+  function cancelSettings() {
+    const key = state.ui.activeFeatureKey;
+    if (!key) return;
+    resetDraftFromCommitted(key);
+    syncControlsFromDraft(key);
+    closeSettings();
   }
 
   function getFeaturePanel(key) {
@@ -703,16 +735,19 @@ export function renderMulti(root) {
     }
   }
 
-  function getFeatureReadiness(key, feature) {
+  function getFeatureReadiness(feature) {
     if (!feature?.enabled) {
       return { label: 'OFF', className: 'chip--off' };
     }
-    return { label: '준비됨', className: 'chip--ok' };
+    if (!feature.applied || feature.dirty) {
+      return { label: '설정 필요', className: 'chip--warn' };
+    }
+    return { label: '검토 준비됨', className: 'chip--ok' };
   }
 
   function updateDrawerBadge(key) {
     if (!state.ui.modalOpen || state.ui.activeFeatureKey !== key || !buildSettingsModal.badge) return;
-    const readiness = getFeatureReadiness(key, state.features[key]);
+    const readiness = getFeatureReadiness(state.features[key]);
     buildSettingsModal.badge.textContent = readiness.label;
     buildSettingsModal.badge.className = `chip ${readiness.className}`;
     buildSettingsModal.badge.style.display = readiness.className === 'chip--warn' ? 'inline-flex' : 'none';
@@ -730,26 +765,31 @@ export function renderMulti(root) {
   function buildFeatureSummary(key) {
     const feature = state.features[key];
     if (key === 'connector') {
-      const extraCount = state.common.extraParams ? state.common.extraParams.split(',').filter((v) => v.trim()).length : 0;
-      const filterText = state.common.targetFilter ? state.common.targetFilter : '필터 없음';
-      const excludeText = state.common.excludeEndDummy ? 'Dummy 제외' : 'Dummy 포함';
-      return `tol=${feature.tol} ${feature.unit} / param=${feature.param} / extra=${extraCount} / ${filterText} / ${excludeText}`;
+      const committed = feature.configCommitted;
+      const commonCommitted = state.common.configCommitted;
+      const extraCount = commonCommitted.extraParams ? commonCommitted.extraParams.split(',').filter((v) => v.trim()).length : 0;
+      const filterText = commonCommitted.targetFilter ? commonCommitted.targetFilter : '필터 없음';
+      const excludeText = commonCommitted.excludeEndDummy ? 'Dummy 제외' : 'Dummy 포함';
+      return `tol=${committed.tol} ${committed.unit} / param=${committed.param} / extra=${extraCount} / ${filterText} / ${excludeText}`;
     }
     if (key === 'guid') {
-      const famText = feature.includeFamily ? 'Family=ON' : 'Family=OFF';
-      const annoText = feature.includeAnnotation ? 'Annotation=ON' : 'Annotation=OFF';
+      const committed = feature.configCommitted;
+      const famText = committed.includeFamily ? 'Family=ON' : 'Family=OFF';
+      const annoText = committed.includeAnnotation ? 'Annotation=ON' : 'Annotation=OFF';
       return `${famText} / ${annoText}`;
     }
     if (key === 'points') {
-      return `Unit=${feature.unit}`;
+      const committed = feature.configCommitted;
+      return `Unit=${committed.unit}`;
     }
     return '';
   }
 
   function buildCommonSummary() {
-    const extraCount = state.common.extraParams ? state.common.extraParams.split(',').filter((v) => v.trim()).length : 0;
-    const filterText = state.common.targetFilter ? state.common.targetFilter : '필터 없음';
-    const excludeText = state.common.excludeEndDummy ? 'Dummy 제외' : 'Dummy 포함';
+    const committed = state.common.configCommitted;
+    const extraCount = committed.extraParams ? committed.extraParams.split(',').filter((v) => v.trim()).length : 0;
+    const filterText = committed.targetFilter ? committed.targetFilter : '필터 없음';
+    const excludeText = committed.excludeEndDummy ? 'Dummy 제외' : 'Dummy 포함';
     return `extra=${extraCount} / ${filterText} / ${excludeText}`;
   }
 
@@ -803,5 +843,94 @@ export function renderMulti(root) {
       ];
     }
     return [];
+  }
+
+  function createFeatureState(config) {
+    return {
+      enabled: false,
+      applied: false,
+      dirty: false,
+      configCommitted: deepCopy(config),
+      configDraft: deepCopy(config)
+    };
+  }
+
+  function createConfigState(config) {
+    return {
+      applied: false,
+      dirty: false,
+      configCommitted: deepCopy(config),
+      configDraft: deepCopy(config)
+    };
+  }
+
+  function deepCopy(obj) {
+    return JSON.parse(JSON.stringify(obj));
+  }
+
+  function buildCommittedFeature(key) {
+    const feature = state.features[key];
+    return {
+      enabled: feature.enabled,
+      ...feature.configCommitted
+    };
+  }
+
+  function commitConfig(target) {
+    target.configCommitted = deepCopy(target.configDraft);
+    target.applied = true;
+    target.dirty = false;
+    if (state.ui.activeFeatureKey !== 'common') {
+      updateFeatureSummary(state.ui.activeFeatureKey);
+    }
+  }
+
+  function resetDraftFromCommitted(key) {
+    if (key === 'common') {
+      state.common.configDraft = deepCopy(state.common.configCommitted);
+      state.common.dirty = false;
+      return;
+    }
+    const feature = state.features[key];
+    if (!feature) return;
+    feature.configDraft = deepCopy(feature.configCommitted);
+    feature.dirty = false;
+  }
+
+  function markFeatureDirty(key) {
+    const feature = state.features[key];
+    if (!feature) return;
+    feature.dirty = true;
+    feature.applied = false;
+    markStale(key);
+  }
+
+  function markCommonDirty() {
+    state.common.dirty = true;
+    state.common.applied = false;
+    markStale('connector');
+  }
+
+  function syncControlsFromDraft(key) {
+    const controls = state.ui.controls[key];
+    if (!controls) return;
+    if (key === 'connector') {
+      const draft = state.features.connector.configDraft;
+      controls.tol.input.value = draft.tol;
+      controls.unit.select.value = draft.unit;
+      controls.param.input.value = draft.param;
+    } else if (key === 'guid') {
+      const draft = state.features.guid.configDraft;
+      controls.includeFamily.input.checked = draft.includeFamily;
+      controls.includeAnno.input.checked = draft.includeAnnotation;
+    } else if (key === 'points') {
+      const draft = state.features.points.configDraft;
+      controls.unit.select.value = draft.unit;
+    } else if (key === 'common') {
+      const draft = state.common.configDraft;
+      controls.extra.input.value = draft.extraParams;
+      controls.filter.input.value = draft.targetFilter;
+      controls.exclude.input.checked = draft.excludeEndDummy;
+    }
   }
 }
