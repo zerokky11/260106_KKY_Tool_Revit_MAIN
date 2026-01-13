@@ -51,7 +51,21 @@ Namespace Services
             End If
             Dim doc = uidoc.Document
             Dim fileLabel = BuildFileLabel(doc)
-            Return RunCore(doc, tolFt, param, extraParams, targetFilter, excludeEndDummy, progress, fileLabel)
+            Return RunCore(doc, tolFt, param, extraParams, targetFilter, excludeEndDummy, False, progress, fileLabel)
+        End Function
+
+        Public Shared Function Run(app As UIApplication, tolFt As Double, param As String, extraParams As IEnumerable(Of String), targetFilter As String, excludeEndDummy As Boolean, includeOkRows As Boolean, Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
+            LastDebug = New List(Of String)()
+            Dim rows As New List(Of Dictionary(Of String, Object))()
+
+            Dim uidoc = app.ActiveUIDocument
+            If uidoc Is Nothing OrElse uidoc.Document Is Nothing Then
+                Log("ActiveUIDocument 없음")
+                Return rows
+            End If
+            Dim doc = uidoc.Document
+            Dim fileLabel = BuildFileLabel(doc)
+            Return RunCore(doc, tolFt, param, extraParams, targetFilter, excludeEndDummy, includeOkRows, progress, fileLabel)
         End Function
 
         Public Shared Function RunOnDocument(doc As Document,
@@ -67,7 +81,24 @@ Namespace Services
                 Return New List(Of Dictionary(Of String, Object))()
             End If
             Dim fileLabel = BuildFileLabel(doc)
-            Return RunCore(doc, tolFt, param, extraParams, targetFilter, excludeEndDummy, progress, fileLabel)
+            Return RunCore(doc, tolFt, param, extraParams, targetFilter, excludeEndDummy, False, progress, fileLabel)
+        End Function
+
+        Public Shared Function RunOnDocument(doc As Document,
+                                             tolFt As Double,
+                                             param As String,
+                                             extraParams As IEnumerable(Of String),
+                                             targetFilter As String,
+                                             excludeEndDummy As Boolean,
+                                             includeOkRows As Boolean,
+                                             Optional progress As Action(Of Double, String) = Nothing) As List(Of Dictionary(Of String, Object))
+            LastDebug = New List(Of String)()
+            If doc Is Nothing Then
+                Log("Document 없음")
+                Return New List(Of Dictionary(Of String, Object))()
+            End If
+            Dim fileLabel = BuildFileLabel(doc)
+            Return RunCore(doc, tolFt, param, extraParams, targetFilter, excludeEndDummy, includeOkRows, progress, fileLabel)
         End Function
 
         Public Shared Function RunOnDocument(doc As Document,
@@ -102,6 +133,7 @@ Namespace Services
                                         extraParams As IEnumerable(Of String),
                                         targetFilter As String,
                                         excludeEndDummy As Boolean,
+                                        includeOkRows As Boolean,
                                         progress As Action(Of Double, String),
                                         fileLabel As String) As List(Of Dictionary(Of String, Object))
             Dim rows As New List(Of Dictionary(Of String, Object))()
@@ -169,38 +201,13 @@ Namespace Services
                     End If
 
                     If found Is Nothing Then
-                        Dim key = BucketKey(c.Origin)
-                        Dim bestOtherId As Integer = 0
-                        Dim bestDistFt As Double = 0.0
-
-                        For dx = -1 To 1
-                            For dy = -1 To 1
-                                For dz = -1 To 1
-                                    Dim nbKey = Tuple.Create(key.Item1 + dx, key.Item2 + dy, key.Item3 + dz)
-                                    If Not buckets.ContainsKey(nbKey) Then Continue For
-
-                                    For Each nb In buckets(nbKey)
-                                        Dim otherId = nb.Item1
-                                        If otherId = baseId Then Continue For
-                                        If Not allowedIds.Contains(otherId) Then Continue For
-                                        If c.Domain <> nb.Item3.Domain Then Continue For
-                                        If c.ConnectorType <> nb.Item3.ConnectorType Then Continue For
-
-                                        Dim d = c.Origin.DistanceTo(nb.Item2)
-                                        If d > tolFt Then Continue For
-
-                                        If bestOtherId = 0 OrElse d < bestDistFt Then
-                                            bestOtherId = otherId
-                                            bestDistFt = d
-                                        End If
-                                    Next
-                                Next
-                            Next
-                        Next
-
-                        If bestOtherId <> 0 Then
-                            found = doc.GetElement(New ElementId(bestOtherId))
-                            distFt = bestDistFt
+                        Dim best = FindProximityCandidate(c, buckets, allowedIds, tolFt, True)
+                        If best.Item1 = 0 Then
+                            best = FindProximityCandidate(c, buckets, allowedIds, tolFt, False)
+                        End If
+                        If best.Item1 <> 0 Then
+                            found = doc.GetElement(New ElementId(best.Item1))
+                            distFt = best.Item2
                             connType = "Proximity(커넥터 연결 필요)"
                         End If
                     End If
@@ -211,55 +218,66 @@ Namespace Services
                     Dim info1 = GetParamInfo(el, param)
                     Dim info2 As ParamInfo = If(found IsNot Nothing, GetParamInfo(found, param), New ParamInfo() With {.Exists = False, .HasValue = False, .Text = ""})
 
-                    Dim status As String
+                    Dim paramCompare As String = "N/A"
+                    Dim issueStatus As String
 
                     If found Is Nothing Then
-                        status = "연결 대상 객체 없음"
+                        issueStatus = "연결 대상 객체 없음"
                     Else
                         If Not info1.Exists OrElse Not info2.Exists Then
-                            status = "Shared Parameter 등록 필요"
+                            issueStatus = "Shared Parameter 등록 필요"
                         ElseIf Not info1.HasValue AndAlso Not info2.HasValue Then
-                            status = "Match"
+                            paramCompare = "BothEmpty"
                         ElseIf String.Equals(info1.Text, info2.Text, StringComparison.OrdinalIgnoreCase) Then
-                            status = "Match"
+                            paramCompare = "Match"
                         Else
-                            status = "Mismatch"
+                            paramCompare = "Mismatch"
+                        End If
+                        If issueStatus Is Nothing Then
+                            If connType.IndexOf("Proximity", StringComparison.OrdinalIgnoreCase) >= 0 Then
+                                issueStatus = "연결 필요(Proximity)"
+                            ElseIf String.Equals(paramCompare, "Mismatch", StringComparison.OrdinalIgnoreCase) Then
+                                issueStatus = "Mismatch"
+                            Else
+                                issueStatus = "OK"
+                            End If
                         End If
                     End If
 
-                    Dim v1 As String = info1.Text
-                    Dim v2 As String = info2.Text
+                    Dim v1 As String = If(info1.Exists, info1.Text, "(미등록)")
+                    Dim v2 As String = If(info2.Exists, info2.Text, "(미등록)")
+                    If found Is Nothing Then v2 = ""
 
                     Dim extras1 = GetExtraValues(el, normalizedExtras, extraCache)
                     Dim extras2 = GetExtraValues(found, normalizedExtras, extraCache)
 
                     Dim shouldAdd As Boolean = False
-                    If String.Equals(status, "Mismatch", StringComparison.OrdinalIgnoreCase) Then
+                    If String.Equals(issueStatus, "Mismatch", StringComparison.OrdinalIgnoreCase) Then
                         shouldAdd = True
-                    ElseIf connType.IndexOf("Proximity", StringComparison.OrdinalIgnoreCase) >= 0 OrElse String.Equals(connType, "Near", StringComparison.OrdinalIgnoreCase) Then
+                    ElseIf String.Equals(issueStatus, "Shared Parameter 등록 필요", StringComparison.OrdinalIgnoreCase) Then
                         shouldAdd = True
-                    ElseIf String.Equals(status, "Shared Parameter 등록 필요", StringComparison.OrdinalIgnoreCase) Then
+                    ElseIf String.Equals(issueStatus, "연결 대상 객체 없음", StringComparison.OrdinalIgnoreCase) Then
                         shouldAdd = True
-                    ElseIf String.Equals(status, "연결 대상 객체 없음", StringComparison.OrdinalIgnoreCase) Then
+                    ElseIf String.Equals(issueStatus, "연결 필요(Proximity)", StringComparison.OrdinalIgnoreCase) Then
+                        shouldAdd = True
+                    ElseIf includeOkRows AndAlso String.Equals(issueStatus, "OK", StringComparison.OrdinalIgnoreCase) Then
                         shouldAdd = True
                     End If
 
                     If shouldAdd Then
                         Dim pairKey As String
+                        Dim originKey = $"{Math.Round(c.Origin.X, 4)},{Math.Round(c.Origin.Y, 4)},{Math.Round(c.Origin.Z, 4)}"
                         If found IsNot Nothing Then
                             Dim id1 = baseId
                             Dim id2 = found.Id.IntegerValue
                             Dim minId = Math.Min(id1, id2)
                             Dim maxId = Math.Max(id1, id2)
-                            pairKey = $"{minId}-{maxId}-{connType}-{status}"
+                            pairKey = $"{minId}-{maxId}-{connType}-{originKey}"
                         Else
-                            Dim ox = Math.Round(c.Origin.X, 4)
-                            Dim oy = Math.Round(c.Origin.Y, 4)
-                            Dim oz = Math.Round(c.Origin.Z, 4)
-                            pairKey = $"{baseId}-none-{connType}-{status}-{ox},{oy},{oz}"
+                            pairKey = $"{baseId}-none-{connType}-{originKey}"
                         End If
                         If seenPairs.Add(pairKey) Then
-                            Dim row = BuildRow(el, found, distInch, connType, param, v1, v2, status, normalizedExtras, extras1, extras2, fileLabel)
+                            Dim row = BuildRow(el, found, distInch, connType, param, v1, v2, issueStatus, paramCompare, normalizedExtras, extras1, extras2, fileLabel)
                             rows.Add(row)
                         End If
                     End If
@@ -300,7 +318,7 @@ Namespace Services
 
         ' --------- 내부 유틸 ---------
 
-        Private Shared Function BuildRow(e1 As Element, e2 As Element, distInch As Double, connType As String, param As String, v1 As String, v2 As String, status As String, extraNames As IList(Of String), extraVals1 As Dictionary(Of String, String), extraVals2 As Dictionary(Of String, String), fileLabel As String) As Dictionary(Of String, Object)
+        Private Shared Function BuildRow(e1 As Element, e2 As Element, distInch As Double, connType As String, param As String, v1 As String, v2 As String, status As String, paramCompare As String, extraNames As IList(Of String), extraVals1 As Dictionary(Of String, String), extraVals2 As Dictionary(Of String, String), fileLabel As String) As Dictionary(Of String, Object)
             Dim cat1 As String = If(e1?.Category Is Nothing, "", e1.Category.Name)
             Dim cat2 As String = If(e2?.Category Is Nothing, "", e2.Category.Name)
             Dim fam1 As String = GetFamilyName(e1)
@@ -319,6 +337,7 @@ Namespace Services
                 {"ParamName", param},
                 {"Value1", v1},
                 {"Value2", v2},
+                {"ParamCompare", paramCompare},
                 {"Status", status}
             }
 
@@ -530,6 +549,46 @@ Namespace Services
                 grid(key).Add(tup)
             Next
             Return grid
+        End Function
+
+        Private Shared Function FindProximityCandidate(c As Connector,
+                                                       buckets As Dictionary(Of Tuple(Of Integer, Integer, Integer), List(Of Tuple(Of Integer, XYZ, Connector))),
+                                                       allowedIds As HashSet(Of Integer),
+                                                       tolFt As Double,
+                                                       requireTypeMatch As Boolean) As Tuple(Of Integer, Double)
+            If c Is Nothing OrElse buckets Is Nothing OrElse allowedIds Is Nothing Then
+                Return Tuple.Create(0, 0.0)
+            End If
+            Dim key = BucketKey(c.Origin)
+            Dim bestOtherId As Integer = 0
+            Dim bestDistFt As Double = 0.0
+
+            For dx = -1 To 1
+                For dy = -1 To 1
+                    For dz = -1 To 1
+                        Dim nbKey = Tuple.Create(key.Item1 + dx, key.Item2 + dy, key.Item3 + dz)
+                        If Not buckets.ContainsKey(nbKey) Then Continue For
+
+                        For Each nb In buckets(nbKey)
+                            Dim otherId = nb.Item1
+                            If otherId = 0 Then Continue For
+                            If Not allowedIds.Contains(otherId) Then Continue For
+                            If c.Domain <> nb.Item3.Domain Then Continue For
+                            If requireTypeMatch AndAlso c.ConnectorType <> nb.Item3.ConnectorType Then Continue For
+
+                            Dim d = c.Origin.DistanceTo(nb.Item2)
+                            If d > tolFt Then Continue For
+
+                            If bestOtherId = 0 OrElse d < bestDistFt Then
+                                bestOtherId = otherId
+                                bestDistFt = d
+                            End If
+                        Next
+                    Next
+                Next
+            Next
+
+            Return Tuple.Create(bestOtherId, bestDistFt)
         End Function
 
         Private Shared Function BucketKey(p As XYZ) As Tuple(Of Integer, Integer, Integer)

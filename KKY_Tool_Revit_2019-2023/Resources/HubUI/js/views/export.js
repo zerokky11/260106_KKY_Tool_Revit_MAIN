@@ -124,15 +124,17 @@ export function renderExport(root) {
     // === 저장 결과 ===
     onHost('export:saved', ({ path }) => {
         const p = path || '';
+        finishWorking();
+        ProgressDialog.hide();
         if (p) {
-            showExcelSavedDialog('엑셀 파일을 내보냈습니다.', p, (fp) => {
-                if (fp) post('excel:open', { path: fp });
+            requestAnimationFrame(() => {
+              showExcelSavedDialog('엑셀 파일을 내보냈습니다.', p, (fp) => {
+                  if (fp) post('excel:open', { path: fp });
+              });
             });
         } else {
             toast('엑셀 파일을 내보냈습니다.', 'ok', 2600);
         }
-        finishWorking();
-        ProgressDialog.hide();
     });
 
     // === 에러 공통 처리(중요) ===

@@ -19,6 +19,9 @@ initTheme();
 let _lastTop = null;
 let _viewRoot = null;
 let _topbarRoot = null;
+let _lastHash = null;
+let _historyStack = [];
+let _suppressHistory = false;
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();
@@ -86,9 +89,25 @@ function boot() {
 
 function route() {
     const hash = (location.hash || '').replace('#', '');
-    const onBack = () => { location.hash = ''; };
+    if (!_suppressHistory && _lastHash !== null && _lastHash !== hash) {
+        _historyStack.push(_lastHash);
+    }
+    if (_suppressHistory) _suppressHistory = false;
+    if (hash === '') _historyStack = [];
+    _lastHash = hash;
+
+    const onBack = () => {
+        _historyStack = [];
+        location.hash = '';
+    };
+    const onNavBack = () => {
+        if (_historyStack.length === 0) return;
+        const prev = _historyStack.pop();
+        _suppressHistory = true;
+        location.hash = prev ? `#${prev}` : '';
+    };
     const withBack = hash !== '';
-    renderTopbar(_topbarRoot, withBack, hash === '' ? null : onBack);
+    renderTopbar(_topbarRoot, withBack, hash === '' ? null : onBack, _historyStack.length > 0, onNavBack);
     if (_viewRoot) _viewRoot.innerHTML = '';
     const targetRoot = _viewRoot || document.getElementById('app');
     switch (hash) {

@@ -544,6 +544,46 @@
     gap: 8px;
 }
 
+.filter-examples {
+    margin-top: 8px;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px dashed var(--border);
+    background: var(--panel2);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.filter-examples__note {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.82rem;
+}
+
+.filter-examples__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+}
+
+.filter-examples__list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.filter-examples__list code {
+    font-size: 0.82rem;
+    color: var(--text);
+    background: var(--panel);
+    border-radius: 8px;
+    padding: 6px 8px;
+}
+
 .help-list {
     margin: 0;
     padding-left: 18px;

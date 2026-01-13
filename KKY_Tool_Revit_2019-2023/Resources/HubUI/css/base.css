@@ -148,6 +148,17 @@ body {
     min-width: 0;
 }
 
+.topbar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.topbar-nav .btn.is-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 .topbar-center {
     display: flex;
     align-items: center;

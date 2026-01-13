@@ -32,7 +32,8 @@ export function renderMulti(root) {
       activeFeatureTitle: '',
       panels: {},
       controls: {},
-      lastProgressPct: 0
+      lastProgressPct: 0,
+      runCompleted: false
     }
   };
 
@@ -102,16 +103,18 @@ export function renderMulti(root) {
     ProgressDialog.update(pct, payload?.message || '', payload?.detail || '');
     updateRunProgress(pct, payload?.message || '', payload?.detail || '');
     if (phase === 'done' || pct >= 100) {
-      setTimeout(() => ProgressDialog.hide(), 200);
+      ProgressDialog.hide();
     }
   });
 
   onHost('hub:multi-done', (payload) => {
     setBusyState(false);
     ProgressDialog.update(100, '완료', '검토가 완료되었습니다.');
-    setTimeout(() => ProgressDialog.hide(), 500);
+    ProgressDialog.hide();
     updateRunProgress(100, '완료', '검토가 완료되었습니다.');
     updateResultSummary(payload?.summary || {});
+    state.ui.runCompleted = true;
+    updateRunActionLabel();
   });
 
   onHost('hub:multi-error', (payload) => {
@@ -119,6 +122,8 @@ export function renderMulti(root) {
     ProgressDialog.hide();
     updateRunProgress(0, '오류 발생', payload?.message || '');
     toast(payload?.message || '배치 검토 중 오류가 발생했습니다.', 'err');
+    state.ui.runCompleted = false;
+    updateRunActionLabel();
   });
 
   onHost('hub:multi-exported', (payload) => {
@@ -127,7 +132,9 @@ export function renderMulti(root) {
     state.ui.lastProgressPct = 0;
     const path = payload?.path;
     if (path) {
-      showExcelSavedDialog('엑셀 저장 완료', path, (p) => post('excel:open', { path: p }));
+      requestAnimationFrame(() => {
+        showExcelSavedDialog('엑셀 저장 완료', path, (p) => post('excel:open', { path: p }));
+      });
     } else {
       toast(payload?.message || '엑셀 저장에 실패했습니다.', 'err');
     }
@@ -184,6 +191,7 @@ export function renderMulti(root) {
     });
 
     fields.append(extra.field, filter.field, exclude.field);
+    fields.append(buildFilterExamples());
     fields.classList.add('settings-panel', 'is-open');
     state.ui.panels.common = fields;
     state.ui.controls.common = { extra, filter, exclude };
@@ -461,7 +469,7 @@ export function renderMulti(root) {
     progressBar.append(progressFill);
     status.append(progressText, progressDetail, progressBar);
 
-    const startBtn = cardBtn('검토 시작', onRun, 'btn--primary');
+    const startBtn = cardBtn('검토 시작', handleRunAction, 'btn--primary');
     startBtn.classList.add('multi-start-btn');
     bar.append(summary, status, startBtn);
 
@@ -472,6 +480,7 @@ export function renderMulti(root) {
     buildRunBar.progressFill = progressFill;
     updateRunSummary();
     updateRunProgress(0, '대기 중', '');
+    updateRunActionLabel();
     return bar;
   }
 
@@ -611,7 +620,17 @@ export function renderMulti(root) {
     });
   }
 
+  function handleRunAction() {
+    if (state.ui.runCompleted) {
+      resetRunResults();
+      return;
+    }
+    onRun();
+  }
+
   function onRun() {
+    state.ui.runCompleted = false;
+    updateRunActionLabel();
     const selected = FEATURE_KEYS.filter((k) => state.features[k].enabled);
     if (!selected.length) {
       toast('선택된 기능이 없습니다.', 'warn');
@@ -654,8 +673,11 @@ export function renderMulti(root) {
     const inputs = page.querySelectorAll('input, select, textarea, button');
     inputs.forEach((el) => {
       if (el.classList.contains('multi-start-btn')) return;
-      if (on) el.disabled = true;
-      else if (!el.classList.contains('btn--primary')) el.disabled = false;
+      if (on) {
+        el.disabled = true;
+      } else {
+        el.disabled = false;
+      }
     });
     if (!on) renderRvtList();
   }
@@ -734,6 +756,28 @@ export function renderMulti(root) {
       const pct = Math.max(0, Math.min(100, Number(percent) || 0));
       buildRunBar.progressFill.style.width = `${pct}%`;
     }
+  }
+
+  function updateRunActionLabel() {
+    if (!buildRunBar.startBtn) return;
+    buildRunBar.startBtn.textContent = state.ui.runCompleted ? '검토 결과 초기화' : '검토 시작';
+  }
+
+  function resetRunResults() {
+    state.ui.runCompleted = false;
+    state.ui.lastProgressPct = 0;
+    updateRunProgress(0, '대기 중', '');
+    FEATURE_KEYS.forEach((key) => {
+      if (state.results[key]) {
+        state.results[key].count = 0;
+        state.results[key].stale = true;
+      }
+    });
+    syncFeatureRow('connector');
+    syncFeatureRow('guid');
+    syncFeatureRow('points');
+    updateRunActionLabel();
+    post('hub:multi-clear', {});
   }
 
   function getFeatureReadiness(feature) {
@@ -932,6 +976,62 @@ export function renderMulti(root) {
       controls.extra.input.value = draft.extraParams;
       controls.filter.input.value = draft.targetFilter;
       controls.exclude.input.checked = draft.excludeEndDummy;
+    }
+  }
+
+  function buildFilterExamples() {
+    const wrap = div('filter-examples');
+    const title = document.createElement('strong');
+    title.textContent = '필터 예시';
+    const note = document.createElement('p');
+    note.textContent = '좌측 Param 토큰은 공백 없는 이름을 권장합니다.';
+    note.className = 'filter-examples__note';
+    const list = document.createElement('ul');
+    list.className = 'filter-examples__list';
+
+    const examples = [
+      "and(PM1='A',PM2='B')",
+      "or(SYSTEM='DCW',SYSTEM='DHW')",
+      "not(Family='End_Dummy')",
+      "and(PM1='A',not(PM2='X'))"
+    ];
+
+    examples.forEach((text) => {
+      const item = document.createElement('li');
+      const code = document.createElement('code');
+      code.textContent = text;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn--ghost';
+      btn.textContent = '복사';
+      btn.addEventListener('click', () => copyToClipboard(text));
+      item.append(code, btn);
+      list.append(item);
+    });
+
+    wrap.append(title, note, list);
+    return wrap;
+  }
+
+  function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => toast('복사되었습니다.', 'ok')).catch(() => toast('복사에 실패했습니다.', 'err'));
+      return;
+    }
+    const temp = document.createElement('textarea');
+    temp.value = text;
+    temp.style.position = 'fixed';
+    temp.style.opacity = '0';
+    document.body.append(temp);
+    temp.focus();
+    temp.select();
+    try {
+      document.execCommand('copy');
+      toast('복사되었습니다.', 'ok');
+    } catch (e) {
+      toast('복사에 실패했습니다.', 'err');
+    } finally {
+      temp.remove();
     }
   }
 }

@@ -253,12 +253,21 @@ NextItem:
                 ReportMultiProgress(CalcStepPercent(basePct, stepIndex, steps), "커넥터 진단 실행 중", safeName)
                 Dim extras = ParseExtraParams(_multiRequest.Common.ExtraParams)
                 Dim rows = ConnectorDiagnosticsService.RunOnDocument(doc, _multiRequest.Connector.Tol, _multiRequest.Connector.Unit, _multiRequest.Connector.Param, extras, _multiRequest.Common.TargetFilter, _multiRequest.Common.ExcludeEndDummy, Nothing)
-                If rows IsNot Nothing Then
+                If rows IsNot Nothing AndAlso rows.Count > 0 Then
                     For Each row In rows
                         If row IsNot Nothing Then row("File") = safeName
                     Next
                     If _multiConnectorRows Is Nothing Then _multiConnectorRows = New List(Of Dictionary(Of String, Object))()
                     _multiConnectorRows.AddRange(rows)
+                    _multiConnectorExtras = extras
+                Else
+                    If _multiConnectorRows Is Nothing Then _multiConnectorRows = New List(Of Dictionary(Of String, Object))()
+                    _multiConnectorRows.Add(New Dictionary(Of String, Object) From {
+                        {"File", safeName},
+                        {"ConnectionType", "OK"},
+                        {"ParamCompare", "OK"},
+                        {"Status", "오류 없음"}
+                    })
                     _multiConnectorExtras = extras
                 End If
             End If
@@ -705,7 +714,7 @@ NextItem:
 
         Private Shared Function BuildConnectorHeaders(extras As IList(Of String)) As List(Of String)
             Dim headers As New List(Of String) From {
-                "File", "Id1", "Id2", "Category1", "Category2", "Family1", "Family2", "Distance (inch)", "ConnectionType", "ParamName", "Value1", "Value2", "Status"
+                "File", "Id1", "Id2", "Category1", "Category2", "Family1", "Family2", "Distance (inch)", "ConnectionType", "ParamName", "Value1", "Value2", "ParamCompare", "Status"
             }
             If extras IsNot Nothing Then
                 For Each name In extras
