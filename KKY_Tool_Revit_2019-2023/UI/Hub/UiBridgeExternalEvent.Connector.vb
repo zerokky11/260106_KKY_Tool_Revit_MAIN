@@ -276,7 +276,7 @@ Namespace UI.Hub
                 Dim filteredTotal = rows.Where(AddressOf ShouldExportToExcel).ToList()
 
                 If filteredTotal Is Nothing OrElse filteredTotal.Count = 0 Then
-                    System.Windows.Forms.MessageBox.Show("Mismatch 항목이 없습니다.", "검토 결과", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                    System.Windows.Forms.MessageBox.Show("이슈 항목이 없습니다.", "검토 결과", MessageBoxButtons.OK, MessageBoxIcon.Information)
                     Return
                 End If
 
@@ -403,16 +403,33 @@ Namespace UI.Hub
             If String.IsNullOrEmpty(conn) Then conn = ReadField(r, "Connection Type")
             If String.Equals(conn, "Near", StringComparison.OrdinalIgnoreCase) Then Return True
             If conn.IndexOf("Proximity", StringComparison.OrdinalIgnoreCase) >= 0 Then Return True
+            Dim status As String = ReadField(r, "Status")
+            If String.Equals(status, "연결 대상 객체 없음", StringComparison.OrdinalIgnoreCase) Then Return True
+            If String.Equals(status, "연결 필요(Proximity)", StringComparison.OrdinalIgnoreCase) Then Return True
             Return False
         End Function
 
         Private Shared Function IsMismatchRow(r As Dictionary(Of String, Object)) As Boolean
             Dim status As String = ReadField(r, "Status")
-            Return String.Equals(status, "Mismatch", StringComparison.OrdinalIgnoreCase)
+            If String.Equals(status, "Mismatch", StringComparison.OrdinalIgnoreCase) Then Return True
+            If String.Equals(status, "Shared Parameter 등록 필요", StringComparison.OrdinalIgnoreCase) Then Return True
+            Return False
         End Function
 
         Private Shared Function IsMismatchStatus(status As String) As Boolean
-            Return String.Equals(status, "Mismatch", StringComparison.OrdinalIgnoreCase)
+            If String.Equals(status, "Mismatch", StringComparison.OrdinalIgnoreCase) Then Return True
+            If String.Equals(status, "Shared Parameter 등록 필요", StringComparison.OrdinalIgnoreCase) Then Return True
+            Return False
+        End Function
+
+        Private Shared Function IsIssueStatus(status As String) As Boolean
+            If String.IsNullOrEmpty(status) Then Return False
+            If String.Equals(status, "ERROR", StringComparison.OrdinalIgnoreCase) Then Return True
+            If String.Equals(status, "Mismatch", StringComparison.OrdinalIgnoreCase) Then Return True
+            If String.Equals(status, "Shared Parameter 등록 필요", StringComparison.OrdinalIgnoreCase) Then Return True
+            If String.Equals(status, "연결 대상 객체 없음", StringComparison.OrdinalIgnoreCase) Then Return True
+            If String.Equals(status, "연결 필요(Proximity)", StringComparison.OrdinalIgnoreCase) Then Return True
+            Return False
         End Function
 
         Private Shared Function IsMatchOrOk(status As String) As Boolean
@@ -424,17 +441,15 @@ Namespace UI.Hub
 
         Private Shared Function ShouldExportToExcel(row As Dictionary(Of String, Object)) As Boolean
             If row Is Nothing Then Return False
-            Return IsMismatchRow(row)
+            Dim status As String = ReadField(row, "Status")
+            Return IsIssueStatus(status)
         End Function
 
         Private Shared Function ShouldIncludeRow(r As Dictionary(Of String, Object)) As Boolean
             If IsMismatchRow(r) Then Return True
             If IsNearConnection(r) Then Return True
-
             Dim status As String = ReadField(r, "Status")
-            If String.Equals(status, "연결 대상 객체 없음", StringComparison.OrdinalIgnoreCase) Then Return True
-
-            Return False
+            Return IsIssueStatus(status)
         End Function
 
         Private Function CountMismatches(rows As List(Of Dictionary(Of String, Object))) As Integer
@@ -445,7 +460,7 @@ Namespace UI.Hub
                 If row IsNot Nothing AndAlso row.ContainsKey("Status") AndAlso row("Status") IsNot Nothing Then
                     status = row("Status").ToString()
                 End If
-                If IsMismatchStatus(status) Then
+                If IsIssueStatus(status) Then
                     cnt += 1
                 End If
             Next
@@ -555,7 +570,7 @@ Namespace UI.Hub
 
         Private Shared Function BuildBaseHeaders() As List(Of String)
             Return New List(Of String) From {
-                "Id1", "Id2", "Category1", "Category2", "Family1", "Family2", "Distance (inch)", "ConnectionType", "ParamName", "Value1", "Value2", "Status"
+                "Id1", "Id2", "Category1", "Category2", "Family1", "Family2", "Distance (inch)", "ConnectionType", "ParamName", "Value1", "Value2", "ParamCompare", "Status", "ErrorMessage"
             }
         End Function
 
@@ -663,9 +678,13 @@ Namespace UI.Hub
             Dim status = SafeCellString(row, "Status")
             Dim conn = SafeCellString(row, "ConnectionType")
 
+            If String.Equals(status, "ERROR", StringComparison.OrdinalIgnoreCase) Then Return 5
             If String.Equals(status, "Mismatch", StringComparison.OrdinalIgnoreCase) Then Return 4
+            If String.Equals(status, "Shared Parameter 등록 필요", StringComparison.OrdinalIgnoreCase) Then Return 4
             If conn.IndexOf("Proximity", StringComparison.OrdinalIgnoreCase) >= 0 OrElse String.Equals(conn, "Near", StringComparison.OrdinalIgnoreCase) Then Return 3
-            If String.Equals(status, "Match", StringComparison.OrdinalIgnoreCase) OrElse String.Equals(status, "OK", StringComparison.OrdinalIgnoreCase) Then Return 2
+            If String.Equals(status, "연결 대상 객체 없음", StringComparison.OrdinalIgnoreCase) Then Return 3
+            If String.Equals(status, "연결 필요(Proximity)", StringComparison.OrdinalIgnoreCase) Then Return 3
+            If String.Equals(status, "OK", StringComparison.OrdinalIgnoreCase) Then Return 2
             Return 1
         End Function
 
@@ -708,7 +727,9 @@ Namespace UI.Hub
             swapped("ParamName") = SafeCellString(row, "ParamName")
             swapped("Value1") = SafeCellString(row, "Value2")
             swapped("Value2") = SafeCellString(row, "Value1")
+            swapped("ParamCompare") = SafeCellString(row, "ParamCompare")
             swapped("Status") = SafeCellString(row, "Status")
+            swapped("ErrorMessage") = SafeCellString(row, "ErrorMessage")
 
             For Each kv In row
                 If kv.Key Is Nothing Then Continue For
@@ -809,8 +830,10 @@ Namespace UI.Hub
 
                     If IsMismatchStatus(statusVal) Then
                         styleToUse = mismatchStyle
-                    ElseIf String.Equals(statusVal, "Match", StringComparison.OrdinalIgnoreCase) OrElse String.Equals(statusVal, "OK", StringComparison.OrdinalIgnoreCase) Then
+                    ElseIf String.Equals(statusVal, "OK", StringComparison.OrdinalIgnoreCase) Then
                         styleToUse = matchStyle
+                    ElseIf String.Equals(statusVal, "연결 대상 객체 없음", StringComparison.OrdinalIgnoreCase) OrElse String.Equals(statusVal, "연결 필요(Proximity)", StringComparison.OrdinalIgnoreCase) Then
+                        styleToUse = nearStyle
                     ElseIf String.Equals(connVal.Trim(), "Near", StringComparison.OrdinalIgnoreCase) OrElse connVal.IndexOf("Proximity", StringComparison.OrdinalIgnoreCase) >= 0 Then
                         styleToUse = nearStyle
                     End If
@@ -893,8 +916,10 @@ Namespace UI.Hub
         Private Shared Function StatusRank(status As String) As Integer
             If String.IsNullOrEmpty(status) Then Return 0
             If String.Equals(status, "Mismatch", StringComparison.OrdinalIgnoreCase) Then Return 3
-            If String.Equals(status, "Match", StringComparison.OrdinalIgnoreCase) OrElse String.Equals(status, "OK", StringComparison.OrdinalIgnoreCase) Then Return 2
-            If String.Equals(status, "연결 대상 객체 없음", StringComparison.OrdinalIgnoreCase) Then Return 1
+            If String.Equals(status, "Shared Parameter 등록 필요", StringComparison.OrdinalIgnoreCase) Then Return 3
+            If String.Equals(status, "연결 필요(Proximity)", StringComparison.OrdinalIgnoreCase) Then Return 2
+            If String.Equals(status, "연결 대상 객체 없음", StringComparison.OrdinalIgnoreCase) Then Return 2
+            If String.Equals(status, "OK", StringComparison.OrdinalIgnoreCase) Then Return 1
             Return 0
         End Function
 

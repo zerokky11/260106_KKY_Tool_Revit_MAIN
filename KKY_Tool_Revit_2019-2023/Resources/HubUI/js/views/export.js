@@ -5,6 +5,7 @@ import { post, onHost } from '../core/bridge.js';
 
 const state = { files: [], rowsRaw: [], folder: '', unit: 'ft' };
 const FT_TO_M = 0.3048;
+const FT_TO_MM = 304.8;
 const HEADERS = [
   { key: 'ProjectPoint_E(mm)', label: 'E/W', group: 'project' },
   { key: 'ProjectPoint_N(mm)', label: 'N/S', group: 'project' },
@@ -123,15 +124,17 @@ export function renderExport(root) {
     // === 저장 결과 ===
     onHost('export:saved', ({ path }) => {
         const p = path || '';
+        finishWorking();
+        ProgressDialog.hide();
         if (p) {
-            showExcelSavedDialog('엑셀 파일을 내보냈습니다.', p, (fp) => {
-                if (fp) post('excel:open', { path: fp });
+            requestAnimationFrame(() => {
+              showExcelSavedDialog('엑셀 파일을 내보냈습니다.', p, (fp) => {
+                  if (fp) post('excel:open', { path: fp });
+              });
             });
         } else {
             toast('엑셀 파일을 내보냈습니다.', 'ok', 2600);
         }
-        finishWorking();
-        ProgressDialog.hide();
     });
 
     // === 에러 공통 처리(중요) ===
@@ -200,7 +203,8 @@ function buildUnitToggle() {
     wrap.setAttribute('role', 'radiogroup');
     wrap.innerHTML = `
       <label><input type="radio" name="unit" value="ft" checked> Decimal Feet</label>
-      <label><input type="radio" name="unit" value="m"> Meters (m)</label>`;
+      <label><input type="radio" name="unit" value="m"> Meters (m)</label>
+      <label><input type="radio" name="unit" value="mm"> Millimeters (mm)</label>`;
     wrap.querySelectorAll('input[type="radio"]').forEach(r => {
       r.checked = r.value === state.unit;
       r.onchange = () => { state.unit = r.value; paintHead(); repaintRows(); };
@@ -240,7 +244,7 @@ function relPath(path, root) {
 }
 
 function paintHead(target) {
-    const unitLabel = state.unit === 'm' ? '(m)' : '(ft)';
+    const unitLabel = state.unit === 'm' ? '(m)' : (state.unit === 'mm' ? '(mm)' : '(ft)');
     const project = HEADERS.filter(h => h.group === 'project');
     const survey = HEADERS.filter(h => h.group === 'survey');
     const head = `
@@ -261,7 +265,7 @@ function paintHead(target) {
 function formatCoord(v) {
     const n = Number(v);
     if (!Number.isFinite(n)) return v ?? '';
-    const scaled = state.unit === 'm' ? n * FT_TO_M : n;
+    const scaled = state.unit === 'm' ? n * FT_TO_M : (state.unit === 'mm' ? n * FT_TO_MM : n);
     return scaled.toFixed(4);
 }
 

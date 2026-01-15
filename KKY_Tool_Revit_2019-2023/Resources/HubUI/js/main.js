@@ -3,6 +3,7 @@ import { onHost, post } from './core/bridge.js';
 import { updateTopMost, setActiveDocument, setDocList, renderTopbar } from './core/topbar.js';
 import { initLogConsole, toggleLogConsole, log } from './core/dom.js';
 import { renderHome } from './views/home.js';
+import { renderActiveMenu } from './views/activeMenu.js';
 import { renderDup } from './views/dup.js';
 import { renderConn } from './views/conn.js';
 import { renderExport } from './views/export.js';
@@ -10,6 +11,7 @@ import { renderParamProp } from './views/paramprop.js';
 import { renderSegmentPms } from './views/segmentpms.js';
 import { renderGuid } from './views/guid.js';
 import { renderFamilyLink } from './views/familylink.js';
+import { renderMulti } from './views/multi.js';
 
 initTheme();
 
@@ -17,6 +19,9 @@ initTheme();
 let _lastTop = null;
 let _viewRoot = null;
 let _topbarRoot = null;
+let _lastHash = null;
+let _historyStack = [];
+let _suppressHistory = false;
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();
@@ -84,9 +89,25 @@ function boot() {
 
 function route() {
     const hash = (location.hash || '').replace('#', '');
-    const onBack = () => { location.hash = ''; };
+    if (!_suppressHistory && _lastHash !== null && _lastHash !== hash) {
+        _historyStack.push(_lastHash);
+    }
+    if (_suppressHistory) _suppressHistory = false;
+    if (hash === '') _historyStack = [];
+    _lastHash = hash;
+
+    const onBack = () => {
+        _historyStack = [];
+        location.hash = '';
+    };
+    const onNavBack = () => {
+        if (_historyStack.length === 0) return;
+        const prev = _historyStack.pop();
+        _suppressHistory = true;
+        location.hash = prev ? `#${prev}` : '';
+    };
     const withBack = hash !== '';
-    renderTopbar(_topbarRoot, withBack, hash === '' ? null : onBack);
+    renderTopbar(_topbarRoot, withBack, hash === '' ? null : onBack, _historyStack.length > 0, onNavBack);
     if (_viewRoot) _viewRoot.innerHTML = '';
     const targetRoot = _viewRoot || document.getElementById('app');
     switch (hash) {
@@ -97,6 +118,8 @@ function route() {
         case 'segmentpms': return renderSegmentPms(targetRoot);
         case 'guid': return renderGuid(targetRoot);
         case 'familylink': return renderFamilyLink(targetRoot);
+        case 'multi': return renderMulti(targetRoot);
+        case 'active-menu': return renderActiveMenu(targetRoot);
         default: return renderHome(targetRoot);
     }
 }

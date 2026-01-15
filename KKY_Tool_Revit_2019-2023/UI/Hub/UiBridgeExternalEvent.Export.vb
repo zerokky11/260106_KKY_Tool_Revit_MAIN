@@ -66,7 +66,7 @@ Namespace UI.Hub
         Private Sub HandleExportPreview(app As UIApplication, payload As Dictionary(Of String, Object))
             ResetExportProgressState()
             Try
-                Dim files = ExtractStringList(payload, "files")
+                Dim files = ExtractStringListLocal(payload, "files")
                 ReportExportProgress("COLLECT", "파일 목록 준비 중", 0, If(files, New List(Of String)()).Count, 0.0, True)
                 Dim rows = TryCallExportPointsService(app, files)
                 If rows Is Nothing Then
@@ -235,7 +235,7 @@ Namespace UI.Hub
             = New List(Of Dictionary(Of String, Object))()
 
         ' payload에서 string 리스트 추출(e.g., files[])
-        Private Shared Function ExtractStringList(payload As Dictionary(Of String, Object), key As String) As List(Of String)
+        Private Shared Function ExtractStringListLocal(payload As Dictionary(Of String, Object), key As String) As List(Of String)
             Dim res As New List(Of String)()
             If payload Is Nothing OrElse Not payload.ContainsKey(key) OrElse payload(key) Is Nothing Then Return res
             Dim v = payload(key)

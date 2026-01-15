@@ -91,6 +91,21 @@ Namespace Services
             Return list
         End Function
 
+        Public Shared Function RunOnDocument(doc As Document, fileName As String, Optional progress As Action(Of ProgressInfo) = Nothing) As IList(Of Row)
+            Dim list As New List(Of Row)()
+            If doc Is Nothing Then Return list
+            Dim row As New Row() With {.File = If(String.IsNullOrWhiteSpace(fileName), doc.Title, fileName)}
+            Try
+                ReportProgress(progress, "EXTRACT", $"포인트 추출: {row.File}", 0, 1, 0.0)
+                Extract(doc, row)
+                list.Add(row)
+                ReportProgress(progress, "DONE", "포인트 추출 완료", 1, 1, 1.0)
+            Catch
+                ReportProgress(progress, "ERROR", "포인트 추출 실패", 0, 1, 1.0)
+            End Try
+            Return list
+        End Function
+
         Public Shared Function ExportToExcel(uiapp As UIApplication, files As Object, Optional unit As String = "ft", Optional doAutoFit As Boolean = False) As String
             Dim rows = Run(uiapp, files)
 
@@ -163,39 +178,81 @@ Namespace Services
             Dim survey As XYZ = If(surveyPt IsNot Nothing, surveyPt.Position, XYZ.Zero)
 
             ' 내부(ft) 값을 그대로 유지하여 단위 변환을 나중에 적용
-            row.ProjectE = project.X
-            row.ProjectN = project.Y
-            row.ProjectZ = project.Z
+            row.ProjectE = TryGetParamDouble(basePt, BuiltInParameter.BASEPOINT_EASTWEST_PARAM, project.X)
+            row.ProjectN = TryGetParamDouble(basePt, BuiltInParameter.BASEPOINT_NORTHSOUTH_PARAM, project.Y)
+            row.ProjectZ = TryGetParamDouble(basePt, BuiltInParameter.BASEPOINT_ELEVATION_PARAM, project.Z)
 
-            row.SurveyE = survey.X
-            row.SurveyN = survey.Y
-            row.SurveyZ = survey.Z
+            row.SurveyE = TryGetParamDouble(surveyPt, BuiltInParameter.BASEPOINT_EASTWEST_PARAM, survey.X)
+            row.SurveyN = TryGetParamDouble(surveyPt, BuiltInParameter.BASEPOINT_NORTHSOUTH_PARAM, survey.Y)
+            row.SurveyZ = TryGetParamDouble(surveyPt, BuiltInParameter.BASEPOINT_ELEVATION_PARAM, survey.Z)
 
-            ' fix2와 동일: LookupParameter("Angle to True North") 우선, 없으면 ProjectLocation
-            Dim deg As Double = 0.0
+            row.TrueNorth = GetTrueNorthDegrees(doc, basePt)
+        End Sub
+
+        Private Shared Function GetTrueNorthDegrees(doc As Document, basePt As BasePoint) As Double
+            Dim deg As Double
+            If TryGetBasePointAngle(basePt, deg) Then
+                Return NormalizeAngleDegrees(deg)
+            End If
+            If TryGetProjectLocationAngle(doc, deg) Then
+                Return NormalizeAngleDegrees(deg)
+            End If
+            Return 0.0
+        End Function
+
+        Private Shared Function TryGetBasePointAngle(basePt As BasePoint, ByRef deg As Double) As Boolean
+            If basePt Is Nothing Then Return False
             Try
-                If basePt IsNot Nothing Then
-                    Dim p = basePt.LookupParameter("Angle to True North")
-                    If p IsNot Nothing Then
-                        deg = p.AsDouble() * (180.0 / Math.PI)
-                    End If
+                Dim p = basePt.get_Parameter(BuiltInParameter.BASEPOINT_ANGLETON_PARAM)
+                If p IsNot Nothing Then
+                    deg = p.AsDouble() * (180.0 / Math.PI)
+                    Return True
                 End If
             Catch
             End Try
+            Try
+                Dim p = basePt.LookupParameter("Angle to True North")
+                If p IsNot Nothing Then
+                    deg = p.AsDouble() * (180.0 / Math.PI)
+                    Return True
+                End If
+            Catch
+            End Try
+            Return False
+        End Function
 
-            If deg = 0.0 Then
-                Try
-                    Dim pl As ProjectLocation = doc.ActiveProjectLocation
-                    Dim pp As ProjectPosition = pl.GetProjectPosition(XYZ.Zero)
-                    If pp IsNot Nothing Then
-                        deg = pp.Angle * (180.0 / Math.PI)
-                    End If
-                Catch
-                End Try
-            End If
+        Private Shared Function TryGetProjectLocationAngle(doc As Document, ByRef deg As Double) As Boolean
+            Try
+                Dim pl As ProjectLocation = doc.ActiveProjectLocation
+                If pl Is Nothing Then Return False
+                Dim pp As ProjectPosition = pl.GetProjectPosition(XYZ.Zero)
+                If pp IsNot Nothing Then
+                    deg = pp.Angle * (180.0 / Math.PI)
+                    Return True
+                End If
+            Catch
+            End Try
+            Return False
+        End Function
 
-            row.TrueNorth = deg
-        End Sub
+        Private Shared Function NormalizeAngleDegrees(deg As Double) As Double
+            If Double.IsNaN(deg) OrElse Double.IsInfinity(deg) Then Return 0.0
+            Dim v As Double = deg Mod 360.0
+            If v < 0.0 Then v += 360.0
+            Return v
+        End Function
+
+        Private Shared Function TryGetParamDouble(el As Element, bip As BuiltInParameter, fallback As Double) As Double
+            If el Is Nothing Then Return fallback
+            Try
+                Dim p = el.get_Parameter(bip)
+                If p IsNot Nothing Then
+                    Return p.AsDouble()
+                End If
+            Catch
+            End Try
+            Return fallback
+        End Function
 
         Private Shared Function BuildOpenOptions(path As String) As OpenOptions
             Dim info As BasicFileInfo = Nothing

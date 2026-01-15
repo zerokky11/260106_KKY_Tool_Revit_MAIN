@@ -33,6 +33,7 @@ const toMm = (inch)=> Number.isFinite(+inch) ? (+inch * INCH_TO_MM) : inch;
 function statusKind(s){
   const t = String(s||'').trim().toLowerCase();
   if (/\b(mis-?match|error|err|fail|invalid|false)\b/.test(t)) return 'bad';
+  if (t.includes('연결 필요') || t.includes('연결 대상') || t.includes('shared parameter')) return 'warn';
   if (/\b(warn|warning|minor|check)\b/.test(t)) return 'warn';
   if (/\b(ok|connected|valid|true)\b/.test(t)) return 'ok';
   return 'info';
@@ -87,7 +88,7 @@ export function renderConn(root) {
 
   const cardSettings = div('conn-card section section-settings');
   const grid = div('conn-grid');
-  const targetFilterInput = makeText(opts.targetFilter || '', 'ex) PM1=Value 대상만 검토');
+  const targetFilterInput = makeText(opts.targetFilter || '', 'ex) PM1=Value;PM2=Value2');
   const excludeEndDummy = makeCheckbox(opts.excludeEndDummy === true);
   targetFilterInput.title = targetFilterInput.value || targetFilterInput.placeholder || '';
 
@@ -106,9 +107,10 @@ export function renderConn(root) {
   const excelHelp = document.createElement('ul');
   excelHelp.className = 'conn-excel-hint';
   excelHelp.innerHTML = `
-    <li><strong>Connection Type</strong>: Near - 허용범위 내 객체 대상으로 검토(미연결) Connected -  물리적 연결된 상태</li>
-    <li><strong>Status</strong>: Mismatch - 값 불일치, OK - 일치</li>
-    <li><strong>Value1 / Value2</strong>: 허용범위 내 비교 대상들의 Parameter 값</li>`;
+    <li><strong>Connection Type</strong>: Proximity - 허용범위 내 연결 필요, Physical - 물리적 연결</li>
+    <li><strong>Status</strong>: 연결 필요 / Mismatch / Shared Parameter 등록 필요 / 연결 대상 객체 없음</li>
+    <li><strong>ParamCompare</strong>: Match / Mismatch / BothEmpty / N/A</li>
+    <li><strong>Value1 / Value2</strong>: 비교 대상의 Parameter 값</li>`;
 
   const filterGuideBtn = cardBtn('And/Or 필터 사용방법', onOpenFilterGuide);
   const filterGuideModal = createFilterGuideModal();
@@ -213,7 +215,9 @@ export function renderConn(root) {
       { key: 'ConnectionType', label: 'ConnectionType' },
       { key: 'Value1', label: 'Value1', classes: ['dim', 'tone-cell'] },
       { key: 'Value2', label: 'Value2', classes: ['dim', 'tone-cell'] },
-      { key: 'Status', label: 'Status', classes: ['tone-cell'] }
+      { key: 'ParamCompare', label: 'ParamCompare', classes: ['tone-cell'] },
+      { key: 'Status', label: 'Status', classes: ['tone-cell'] },
+      { key: 'ErrorMessage', label: 'ErrorMessage', classes: ['dim'] }
     ];
 
     return base;
@@ -297,7 +301,7 @@ export function renderConn(root) {
         const defs = headers[idx];
         if (defs && Array.isArray(defs.classes)) td.classList.add(...defs.classes);
 
-        if (defs && defs.key && (defs.key === 'Value1' || defs.key === 'Value2' || defs.key === 'Status')) {
+        if (defs && defs.key && (defs.key === 'Value1' || defs.key === 'Value2' || defs.key === 'ParamCompare' || defs.key === 'Status')) {
           const kind = statusKind(statusVal);
           td.classList.add("tone-cell",
             kind==='ok'?'tone-ok':kind==='warn'?'tone-warn':kind==='bad'?'tone-bad':'tone-info');
@@ -323,8 +327,8 @@ export function renderConn(root) {
     const nearSection = (payload && payload.near) || {};
 
     const cleaned = Array.isArray(rows) ? rows : [];
-    const mismatchFromCleaned = cleaned.filter(r => normalizeStatus(r) === 'MISMATCH');
-    const nearFromCleaned = cleaned.filter(r => normalizeConnectionType(r).toUpperCase() === 'NEAR');
+    const mismatchFromCleaned = cleaned.filter(isMismatchIssue);
+    const nearFromCleaned = cleaned.filter(isNotConnectedIssue);
 
     const mismatchPreview = Array.isArray(mismatchSection.rows) ? mismatchSection.rows : mismatchFromCleaned;
     const nearPreview = Array.isArray(nearSection.rows) ? nearSection.rows : nearFromCleaned;
@@ -531,6 +535,21 @@ export function renderConn(root) {
     return String((row && (row.Status ?? row.status)) || '').trim().toUpperCase();
   }
 
+  function isMismatchIssue(row){
+    const status = normalizeStatus(row);
+    if (status === 'MISMATCH') return true;
+    if (status === 'SHARED PARAMETER 등록 필요'.toUpperCase()) return true;
+    return false;
+  }
+
+  function isNotConnectedIssue(row){
+    const status = normalizeStatus(row);
+    if (status.includes('연결 필요')) return true;
+    if (status.includes('연결 대상 객체 없음')) return true;
+    const conn = normalizeConnectionType(row).toUpperCase();
+    return conn.includes('PROXIMITY') || conn === 'NEAR';
+  }
+
   function normalizeConnectionType(row){
     return String((row && (row.ConnectionType ?? row.connectionType ?? row.Type ?? row.type)) || '').trim();
   }
@@ -668,6 +687,7 @@ export function renderConn(root) {
         <li><strong>AND</strong>: <code>AND(cond1, cond2, ...)</code></li>
         <li><strong>OR</strong>: <code>OR(cond1, cond2, ...)</code></li>
         <li><strong>NOT</strong>: <code>NOT(cond)</code></li>
+        <li><strong>구분자</strong>: 조건을 <code>,</code> 또는 <code>;</code> 로 나열하면 자동 AND 처리</li>
       </ul>
       <div class="conn-excel-hint" style="margin-bottom:12px;">
         <div style="font-weight:600; margin-bottom:4px;">콤마 생략도 허용되는 예시</div>

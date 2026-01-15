@@ -261,6 +261,103 @@ Namespace Services
             Return ds
         End Function
 
+        Public Shared Function ExtractFromDocument(app As UIApplication,
+                                                   doc As RvtDB.Document,
+                                                   filePath As String,
+                                                   options As ExtractOptions,
+                                                   Optional progress As Action(Of Integer, Integer, String, String, String) = Nothing) As DataSet
+            Dim ds As New DataSet()
+            Dim meta = BuildMetaTable()
+            Dim fileTable = BuildFileTable()
+            Dim rules = BuildRuleTable()
+            Dim sizes = BuildSizeTable()
+            Dim routing = BuildRoutingTable()
+            ds.Tables.Add(meta)
+            ds.Tables.Add(fileTable)
+            ds.Tables.Add(rules)
+            ds.Tables.Add(sizes)
+            ds.Tables.Add(routing)
+
+            Dim metaRow = meta.NewRow()
+            metaRow("NdRound") = options.NdRound
+            metaRow("Tolerance") = options.ToleranceMm
+            metaRow("CreatedAt") = DateTime.Now.ToString("s", CultureInfo.InvariantCulture)
+            metaRow("ToolVersion") = ToolVersion
+            meta.Rows.Add(metaRow)
+
+            If doc Is Nothing Then
+                Return ds
+            End If
+
+            Dim totalCount As Integer = 1
+            Dim fileIndex As Integer = 1
+            Dim safePath As String = If(filePath, String.Empty)
+            Dim fileName As String = Path.GetFileName(safePath)
+
+            If progress IsNot Nothing Then
+                progress(totalCount, fileIndex, "open", "파일 여는 중", safePath)
+            End If
+
+            Dim fileRow = fileTable.NewRow()
+            fileRow("File") = safePath
+            fileRow("FileName") = fileName
+            fileRow("ExtractedAt") = DateTime.Now.ToString("s", CultureInfo.InvariantCulture)
+            fileTable.Rows.Add(fileRow)
+
+            If progress IsNot Nothing Then
+                progress(totalCount, fileIndex, "extract", "Segment 후보 수집 중", safePath)
+            End If
+            Dim pipeInfos = CollectPipeTypeSegmentCandidates(doc, safePath)
+            For Each info In pipeInfos
+                Dim row = rules.NewRow()
+                row("File") = info.File
+                row("FileName") = info.FileName
+                row("PipeTypeName") = info.PipeTypeName
+                row("RuleIndex") = info.RuleIndex
+                row("RevitSegmentKey") = info.RevitSegmentKey
+                row("SegmentId") = info.SegmentId
+                row("SegmentClass") = info.SegmentClass
+                row("SegmentName") = info.SegmentName
+                row("SegmentPipeType") = info.SegmentPipeType
+                row("SegmentIdParam") = info.SegmentIdParam
+                rules.Rows.Add(row)
+
+                For Each sz In info.Sizes
+                    Dim sr = sizes.NewRow()
+                    sr("File") = info.File
+                    sr("FileName") = info.FileName
+                    sr("PipeTypeName") = info.PipeTypeName
+                    sr("RuleIndex") = info.RuleIndex
+                    sr("SegmentId") = info.SegmentId
+                    sr("SegmentKey") = info.RevitSegmentKey
+                    sr("ND_mm") = sz.NdMm
+                    sr("Revit_ID") = sz.IdMm
+                    sr("Revit_OD") = sz.OdMm
+                    sizes.Rows.Add(sr)
+                Next
+            Next
+
+            If progress IsNot Nothing Then
+                progress(totalCount, fileIndex, "route", "RoutingPreference 수집 중", safePath)
+            End If
+            Dim routingInfos = CollectRouting(doc, safePath)
+            For Each info In routingInfos
+                Dim row = routing.NewRow()
+                row("File") = info.File
+                row("FileName") = info.FileName
+                row("PipeTypeName") = info.PipeTypeName
+                row("PartName") = info.PartName
+                row("TypeName") = info.TypeName
+                routing.Rows.Add(row)
+            Next
+
+            If progress IsNot Nothing Then
+                progress(totalCount, fileIndex, "done", "파일 처리 완료", safePath)
+            End If
+
+            Return ds
+        End Function
+
         Public Shared Sub SaveDataSetToXlsx(ds As DataSet, path As String, Optional doAutoFit As Boolean = False, Optional progressChannel As String = Nothing)
             If ds Is Nothing Then Return
             Dim totalRows As Integer = 0
@@ -1953,6 +2050,14 @@ Namespace Services
             Public Property PartId As Integer
             Public Property PartName As String = String.Empty
             Public Property TypeName As String = String.Empty
+            Public ReadOnly Property FileName As String
+                Get
+                    If String.IsNullOrWhiteSpace([File]) Then
+                        Return String.Empty
+                    End If
+                    Return Path.GetFileName([File])
+                End Get
+            End Property
         End Class
 
         Private Shared Function ExtractRoutingTypeName(doc As RvtDB.Document, partId As RvtDB.ElementId) As String
@@ -2136,6 +2241,61 @@ Namespace Services
             Public Property PipeTypeName As String = String.Empty
             Public Property Candidates As List(Of PrepareRow)
             Public Property DefaultRuleIndex As Integer
+            Public Property SegmentClass As String = String.Empty
+            Public Property SegmentPipeType As String = String.Empty
+            Public Property SegmentIdParam As String = String.Empty
+            Public Property Sizes As List(Of ExtractSizeRow) = New List(Of ExtractSizeRow)()
+
+            Public ReadOnly Property FileName As String
+                Get
+                    If String.IsNullOrWhiteSpace([File]) Then
+                        Return String.Empty
+                    End If
+                    Return Path.GetFileName([File])
+                End Get
+            End Property
+
+            Public ReadOnly Property RuleIndex As Integer
+                Get
+                    Dim cand = GetDefaultCandidate()
+                    If cand Is Nothing Then Return DefaultRuleIndex
+                    Return cand.RuleIndex
+                End Get
+            End Property
+
+            Public ReadOnly Property RevitSegmentKey As String
+                Get
+                    Dim cand = GetDefaultCandidate()
+                    Return If(cand?.SegmentKey, String.Empty)
+                End Get
+            End Property
+
+            Public ReadOnly Property SegmentId As Integer
+                Get
+                    Dim cand = GetDefaultCandidate()
+                    If cand Is Nothing Then Return 0
+                    Return cand.SegmentId
+                End Get
+            End Property
+
+            Public ReadOnly Property SegmentName As String
+                Get
+                    Dim cand = GetDefaultCandidate()
+                    Return If(cand?.SegmentName, String.Empty)
+                End Get
+            End Property
+
+            Private Function GetDefaultCandidate() As PrepareRow
+                If Candidates Is Nothing OrElse Candidates.Count = 0 Then
+                    Return Nothing
+                End If
+                For Each cand In Candidates
+                    If cand IsNot Nothing AndAlso cand.RuleIndex = DefaultRuleIndex Then
+                        Return cand
+                    End If
+                Next
+                Return Candidates(0)
+            End Function
         End Class
 
         Private Shared Function CellStr(row As IRow, col As Integer) As String

@@ -12,12 +12,14 @@ let _activeDoc = { name: '', path: '' };
 let _topbarEl = null;
 let _backBtn = null;
 let _backHandler = null;
+let _navBackBtn = null;
+let _navWrap = null;
 let _progressWrap = null;
 let _progressFill = null;
 let _progressText = null;
 let _progressPct = null;
 
-export function renderTopbar(root, withBack = false, onBack = null) {
+export function renderTopbar(root, withBack = false, onBack = null, canGoBack = false, onNavBack = null) {
     const host = document.getElementById('topbar-root') || root;
     if (!host) return;
     if (_topbarEl) {
@@ -31,6 +33,8 @@ export function renderTopbar(root, withBack = false, onBack = null) {
         const right = div('topbar-right');
         _topbarEl.append(left, center, right);
         host.append(_topbarEl);
+        _navWrap = div('topbar-nav');
+        left.append(_navWrap);
         buildBrand(left);
         renderTopbarChips();
 
@@ -46,13 +50,17 @@ export function renderTopbar(root, withBack = false, onBack = null) {
         _topbarEl.append(_progressWrap);
     }
 
-    configureBackButton(withBack, onBack);
+    configureBackButton(withBack, onBack, canGoBack, onNavBack);
     setConn(true);
 }
 
-function configureBackButton(withBack, onBack) {
+function configureBackButton(withBack, onBack, canGoBack, onNavBack) {
     const left = _topbarEl?.querySelector('.topbar-left');
     if (!left) return;
+    if (!_navWrap) {
+        _navWrap = div('topbar-nav');
+        left.prepend(_navWrap);
+    }
     if (!_backBtn) {
         _backBtn = document.createElement('button');
         _backBtn.className = 'btn btn-ghost';
@@ -65,10 +73,25 @@ function configureBackButton(withBack, onBack) {
         label.className = 'back-btn-label';
         label.textContent = '허브 홈으로';
         _backBtn.append(icon, label);
-        left.prepend(_backBtn);
+        _navWrap.append(_backBtn);
     } else {
         const label = _backBtn.querySelector('.back-btn-label');
         if (label) label.textContent = '허브 홈으로';
+    }
+
+    if (!_navBackBtn) {
+        _navBackBtn = document.createElement('button');
+        _navBackBtn.className = 'btn btn-ghost';
+        _navBackBtn.type = 'button';
+        const icon = document.createElement('img');
+        icon.className = 'back-btn-icon';
+        icon.src = 'assets/icons/HubHome_24.png';
+        icon.alt = '';
+        const label = document.createElement('span');
+        label.className = 'back-btn-label';
+        label.textContent = '뒤로가기';
+        _navBackBtn.append(icon, label);
+        _navWrap.append(_navBackBtn);
     }
 
     _backHandler = onBack;
@@ -94,6 +117,15 @@ function configureBackButton(withBack, onBack) {
         }
     };
     _backBtn.classList.toggle('hidden', !withBack);
+
+    if (_navBackBtn) {
+        _navBackBtn.disabled = !canGoBack;
+        _navBackBtn.classList.toggle('is-disabled', !canGoBack);
+        _navBackBtn.onclick = () => {
+            if (!canGoBack) return;
+            if (typeof onNavBack === 'function') onNavBack();
+        };
+    }
 }
 
 function buildBrand(host) {

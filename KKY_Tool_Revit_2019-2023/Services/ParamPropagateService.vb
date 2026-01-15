@@ -898,6 +898,68 @@ Namespace Services
             Return result
         End Function
 
+        Public Shared Function RunOnDocument(app As UIApplication,
+                                             doc As Document,
+                                             request As SharedParamRunRequest,
+                                             Optional progress As Action(Of String, Double, Integer, Integer, String, String) = Nothing) As SharedParamRunResult
+            Dim result As New SharedParamRunResult With {
+                .Status = RunStatus.Failed,
+                .Details = New List(Of SharedParamDetailRow)()
+            }
+
+            If app Is Nothing Then
+                result.Message = "UIApplication 이 없습니다."
+                Return result
+            End If
+            If doc Is Nothing Then
+                result.Message = "문서가 없습니다."
+                Return result
+            End If
+            If doc.IsFamilyDocument Then
+                result.Message = "프로젝트 문서에서 실행하세요."
+                Return result
+            End If
+
+            Dim reporter As New ProgressDispatcher(progress)
+
+            Dim sharedPath As String = app.Application.SharedParametersFilename
+            If String.IsNullOrEmpty(sharedPath) OrElse Not File.Exists(sharedPath) Then
+                result.Message = "공유 파라미터 파일 먼저 지정해 주세요."
+                Return result
+            End If
+
+            If request Is Nothing OrElse request.ParamNames Is Nothing OrElse request.ParamNames.Count = 0 Then
+                result.Message = "선택된 공유 파라미터가 없습니다."
+                result.Status = RunStatus.Cancelled
+                Return result
+            End If
+
+            Dim chosenPG As BuiltInParameterGroup = BuiltInParameterGroup.PG_TEXT
+            Try
+                chosenPG = CType(request.TargetGroup, BuiltInParameterGroup)
+            Catch
+                chosenPG = BuiltInParameterGroup.PG_TEXT
+            End Try
+
+            Dim extDefs As List(Of ExternalDefinition) = ResolveDefinitions(app.Application, request.ParamNames)
+            If extDefs Is Nothing OrElse extDefs.Count = 0 Then
+                result.Message = "선택한 공유 파라미터를 Shared Parameters 파일에서 찾을 수 없습니다."
+                Return result
+            End If
+
+            Dim status As RunStatus =
+                ExecuteCore(doc, extDefs, request.ParamNames, request.ExcludeDummy, chosenPG, request.IsInstance, result, reporter)
+
+            result.Status = status
+            If String.IsNullOrEmpty(result.Message) Then
+                result.Message = If(status = RunStatus.Succeeded,
+                                    "공유 파라미터 연동을 완료했습니다.",
+                                    "공유 파라미터 연동에 실패했습니다.")
+            End If
+
+            Return result
+        End Function
+
         '==================== 결과를 엑셀로 ====================
         Public Shared Function ExportResultToExcel(result As SharedParamRunResult, Optional doAutoFit As Boolean = False) As String
             If result Is Nothing OrElse result.Details Is Nothing OrElse result.Details.Count = 0 Then Return String.Empty
