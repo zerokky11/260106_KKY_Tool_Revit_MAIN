@@ -88,7 +88,7 @@ export function renderConn(root) {
 
   const cardSettings = div('conn-card section section-settings');
   const grid = div('conn-grid');
-  const targetFilterInput = makeText(opts.targetFilter || '', 'ex) PM1=Value 대상만 검토');
+  const targetFilterInput = makeText(opts.targetFilter || '', 'ex) PM1=Value;PM2=Value2');
   const excludeEndDummy = makeCheckbox(opts.excludeEndDummy === true);
   targetFilterInput.title = targetFilterInput.value || targetFilterInput.placeholder || '';
 
@@ -216,7 +216,8 @@ export function renderConn(root) {
       { key: 'Value1', label: 'Value1', classes: ['dim', 'tone-cell'] },
       { key: 'Value2', label: 'Value2', classes: ['dim', 'tone-cell'] },
       { key: 'ParamCompare', label: 'ParamCompare', classes: ['tone-cell'] },
-      { key: 'Status', label: 'Status', classes: ['tone-cell'] }
+      { key: 'Status', label: 'Status', classes: ['tone-cell'] },
+      { key: 'ErrorMessage', label: 'ErrorMessage', classes: ['dim'] }
     ];
 
     return base;
@@ -686,6 +687,7 @@ export function renderConn(root) {
         <li><strong>AND</strong>: <code>AND(cond1, cond2, ...)</code></li>
         <li><strong>OR</strong>: <code>OR(cond1, cond2, ...)</code></li>
         <li><strong>NOT</strong>: <code>NOT(cond)</code></li>
+        <li><strong>구분자</strong>: 조건을 <code>,</code> 또는 <code>;</code> 로 나열하면 자동 AND 처리</li>
       </ul>
       <div class="conn-excel-hint" style="margin-bottom:12px;">
         <div style="font-weight:600; margin-bottom:4px;">콤마 생략도 허용되는 예시</div>

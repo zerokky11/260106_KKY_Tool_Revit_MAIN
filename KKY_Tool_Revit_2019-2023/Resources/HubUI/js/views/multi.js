@@ -166,7 +166,7 @@ export function renderMulti(root) {
 
     const fields = div('multi-config is-open');
     const extra = makeField('추가 Parameter 값 추출', 'extra', 'PM1, PM2', 'textarea');
-    const filter = makeField('검토 대상 필터', 'filter', 'ex) PM1=Value', 'text');
+    const filter = makeField('검토 대상 필터', 'filter', 'ex) PM1=Value;PM2=Value2', 'text');
     const exclude = makeCheckboxField('End_ + Dummy 패밀리 제외');
 
     const draft = state.common.configDraft;
@@ -984,7 +984,7 @@ export function renderMulti(root) {
     const title = document.createElement('strong');
     title.textContent = '필터 예시';
     const note = document.createElement('p');
-    note.textContent = '좌측 Param 토큰은 공백 없는 이름을 권장합니다.';
+    note.textContent = '좌측 Param 토큰은 공백 없는 이름을 권장합니다. 구분자는 콤마(,) 또는 세미콜론(;)을 사용할 수 있습니다.';
     note.className = 'filter-examples__note';
     const list = document.createElement('ul');
     list.className = 'filter-examples__list';
@@ -993,7 +993,8 @@ export function renderMulti(root) {
       "and(PM1='A',PM2='B')",
       "or(SYSTEM='DCW',SYSTEM='DHW')",
       "not(Family='End_Dummy')",
-      "and(PM1='A',not(PM2='X'))"
+      "and(PM1='A',not(PM2='X'))",
+      "PM1='A';PM2='B'"
     ];
 
     examples.forEach((text) => {

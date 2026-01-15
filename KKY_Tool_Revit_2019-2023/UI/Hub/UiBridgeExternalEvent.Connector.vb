@@ -424,6 +424,7 @@ Namespace UI.Hub
 
         Private Shared Function IsIssueStatus(status As String) As Boolean
             If String.IsNullOrEmpty(status) Then Return False
+            If String.Equals(status, "ERROR", StringComparison.OrdinalIgnoreCase) Then Return True
             If String.Equals(status, "Mismatch", StringComparison.OrdinalIgnoreCase) Then Return True
             If String.Equals(status, "Shared Parameter 등록 필요", StringComparison.OrdinalIgnoreCase) Then Return True
             If String.Equals(status, "연결 대상 객체 없음", StringComparison.OrdinalIgnoreCase) Then Return True
@@ -569,7 +570,7 @@ Namespace UI.Hub
 
         Private Shared Function BuildBaseHeaders() As List(Of String)
             Return New List(Of String) From {
-                "Id1", "Id2", "Category1", "Category2", "Family1", "Family2", "Distance (inch)", "ConnectionType", "ParamName", "Value1", "Value2", "ParamCompare", "Status"
+                "Id1", "Id2", "Category1", "Category2", "Family1", "Family2", "Distance (inch)", "ConnectionType", "ParamName", "Value1", "Value2", "ParamCompare", "Status", "ErrorMessage"
             }
         End Function
 
@@ -677,6 +678,7 @@ Namespace UI.Hub
             Dim status = SafeCellString(row, "Status")
             Dim conn = SafeCellString(row, "ConnectionType")
 
+            If String.Equals(status, "ERROR", StringComparison.OrdinalIgnoreCase) Then Return 5
             If String.Equals(status, "Mismatch", StringComparison.OrdinalIgnoreCase) Then Return 4
             If String.Equals(status, "Shared Parameter 등록 필요", StringComparison.OrdinalIgnoreCase) Then Return 4
             If conn.IndexOf("Proximity", StringComparison.OrdinalIgnoreCase) >= 0 OrElse String.Equals(conn, "Near", StringComparison.OrdinalIgnoreCase) Then Return 3
@@ -727,6 +729,7 @@ Namespace UI.Hub
             swapped("Value2") = SafeCellString(row, "Value1")
             swapped("ParamCompare") = SafeCellString(row, "ParamCompare")
             swapped("Status") = SafeCellString(row, "Status")
+            swapped("ErrorMessage") = SafeCellString(row, "ErrorMessage")
 
             For Each kv In row
                 If kv.Key Is Nothing Then Continue For

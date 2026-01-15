@@ -211,15 +211,19 @@ Namespace UI.Hub
             Try
                 If Not System.IO.File.Exists(filePath) Then
                     ReportMultiProgress(basePct * 100.0R, "파일을 찾을 수 없습니다.", safeName)
+                    AppendMultiConnectorError(safeName, "파일을 찾을 수 없습니다.")
                     GoTo NextItem
                 End If
 
                 Dim mp = ModelPathUtils.ConvertUserVisiblePathToModelPath(filePath)
                 doc = app.Application.OpenDocumentFile(mp, BuildOpenOptions())
+                ReportMultiProgress(basePct * 100.0R, "파일 열기 완료", safeName)
 
                 RunMultiForDocument(app, doc, filePath, safeName, basePct)
             Catch ex As Exception
-                SendToWeb("hub:multi-error", New With {.message = $"파일 처리 실패: {safeName} - {ex.Message}"})
+                AppendMultiConnectorError(safeName, $"파일 처리 실패: {ex.Message}")
+                ReportMultiProgress(basePct * 100.0R, "파일 처리 실패 (건너뜀)", safeName)
+                SendToWeb("host:warn", New With {.message = $"파일 처리 실패: {safeName} - {ex.Message}"})
             Finally
                 If doc IsNot Nothing Then
                     Try
@@ -269,10 +273,12 @@ NextItem:
                         {"File", safeName},
                         {"ConnectionType", "OK"},
                         {"ParamCompare", "OK"},
-                        {"Status", "오류 없음"}
+                        {"Status", "오류 없음"},
+                        {"ErrorMessage", ""}
                     })
                     _multiConnectorExtras = extras
                 End If
+                ReportMultiProgress(CalcStepPercent(basePct, stepIndex, steps), "커넥터 진단 완료", safeName)
             End If
 
             If _multiRequest.Pms.Enabled Then
@@ -297,6 +303,7 @@ NextItem:
                     Dim run = SegmentPmsCheckService.RunCompare(ds, _pmsRows, mappings, compareOpts)
                     AppendSegmentPmsRows(run, ds)
                 End If
+                ReportMultiProgress(CalcStepPercent(basePct, stepIndex, steps), "PMS 검토 완료", safeName)
             End If
 
             If _multiRequest.Guid.Enabled Then
@@ -304,6 +311,7 @@ NextItem:
                 ReportMultiProgress(CalcStepPercent(basePct, stepIndex, steps), "GUID 검토 실행 중", safeName)
                 Dim res = GuidAuditService.Run(app, If(_multiRequest.Guid.IncludeFamily, 2, 1), New List(Of String) From {path}, Nothing, Nothing, _multiRequest.Guid.IncludeFamily, _multiRequest.Guid.IncludeAnnotation)
                 MergeGuidResult(res)
+                ReportMultiProgress(CalcStepPercent(basePct, stepIndex, steps), "GUID 검토 완료", safeName)
             End If
 
             If _multiRequest.ParamProp.Enabled Then
@@ -320,6 +328,7 @@ NextItem:
                     If _multiParamDetails Is Nothing Then _multiParamDetails = New List(Of ParamPropagateService.SharedParamDetailRow)()
                     _multiParamDetails.AddRange(res.Details)
                 End If
+                ReportMultiProgress(CalcStepPercent(basePct, stepIndex, steps), "파라미터 연동 검토 완료", safeName)
             End If
 
             If _multiRequest.FamilyLink.Enabled Then
@@ -330,6 +339,7 @@ NextItem:
                     If _multiFamilyLinkRows Is Nothing Then _multiFamilyLinkRows = New List(Of FamilyLinkAuditRow)()
                     _multiFamilyLinkRows.AddRange(rows)
                 End If
+                ReportMultiProgress(CalcStepPercent(basePct, stepIndex, steps), "패밀리 연동 검토 완료", safeName)
             End If
 
             If _multiRequest.Points.Enabled Then
@@ -340,6 +350,7 @@ NextItem:
                     If _multiPointRows Is Nothing Then _multiPointRows = New List(Of ExportPointsService.Row)()
                     _multiPointRows.AddRange(rows)
                 End If
+                ReportMultiProgress(CalcStepPercent(basePct, stepIndex, steps), "Point 추출 완료", safeName)
             End If
         End Sub
 
@@ -717,7 +728,7 @@ NextItem:
 
         Private Shared Function BuildConnectorHeaders(extras As IList(Of String)) As List(Of String)
             Dim headers As New List(Of String) From {
-                "File", "Id1", "Id2", "Category1", "Category2", "Family1", "Family2", "Distance (inch)", "ConnectionType", "ParamName", "Value1", "Value2", "ParamCompare", "Status"
+                "File", "Id1", "Id2", "Category1", "Category2", "Family1", "Family2", "Distance (inch)", "ConnectionType", "ParamName", "Value1", "Value2", "ParamCompare", "Status", "ErrorMessage"
             }
             If extras IsNot Nothing Then
                 For Each name In extras
@@ -727,6 +738,19 @@ NextItem:
             End If
             Return headers
         End Function
+
+        Private Sub AppendMultiConnectorError(fileName As String, message As String)
+            If _multiRequest Is Nothing OrElse _multiRequest.Connector Is Nothing OrElse Not _multiRequest.Connector.Enabled Then Return
+            If _multiConnectorRows Is Nothing Then _multiConnectorRows = New List(Of Dictionary(Of String, Object))()
+            _multiConnectorRows.Add(New Dictionary(Of String, Object) From {
+                {"File", fileName},
+                {"ConnectionType", "ERROR"},
+                {"ParamName", _multiRequest.Connector.Param},
+                {"ParamCompare", "N/A"},
+                {"Status", "ERROR"},
+                {"ErrorMessage", message}
+            })
+        End Sub
 
         Private Shared Function BuildTableFromRows(headers As IList(Of String), rows As IList(Of Dictionary(Of String, Object))) As DataTable
             Dim dt As New DataTable("Export")
