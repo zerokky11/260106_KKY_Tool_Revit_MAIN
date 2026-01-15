@@ -14,22 +14,43 @@ export function renderHome(root) {
 
     const grid = div('home-choice-grid');
     grid.append(
-        buildCard('활성 문서 검토', '현재 열려있는 Revit 문서를 대상으로 빠르게 검토를 수행합니다.', 'active-menu'),
-        buildCard('다중 RVT 검토', '여러 RVT 파일을 등록하고 배치 검토 및 엑셀 추출을 실행합니다.', 'multi')
+        buildCard(
+            '활성 문서 검토',
+            '현재 열려있는 Revit 문서를 대상으로 빠르게 검토를 수행합니다.',
+            'active-menu',
+            [
+                '중복 객체 검토: 현재 열린 문서에서 중복 요소/패밀리 점검',
+                '공유 파라미터 추가/연동: 공유 파라미터 텍스트 등록 여부 점검'
+            ]
+        ),
+        buildCard(
+            '다중 RVT 검토',
+            '여러 RVT 파일을 등록하고 배치 검토 및 엑셀 추출을 실행합니다.',
+            'multi',
+            [
+                '커넥터 진단(BQC용): 파라미터 값 연속성/연결 관계 점검',
+                'GUID 검토: 공유 파라미터 GUID 불일치 확인',
+                'Point 추출: Project/Survey 포인트 좌표 추출'
+            ]
+        )
     );
 
     view.append(hero, grid);
     target.append(view);
 
-    function buildCard(title, desc, hash) {
+    function buildCard(title, desc, hash, items) {
         const card = document.createElement('button');
         card.type = 'button';
         card.className = 'home-choice-card';
+        const listHtml = Array.isArray(items) && items.length
+          ? `<ul class="home-choice-list">${items.map((item) => `<li>${item}</li>`).join('')}</ul>`
+          : '';
         card.innerHTML = `
             <div class="home-choice-card__body">
               <div>
                 <h3>${title}</h3>
                 <p>${desc}</p>
+                ${listHtml}
               </div>
               <span class="home-choice-card__icon">→</span>
             </div>

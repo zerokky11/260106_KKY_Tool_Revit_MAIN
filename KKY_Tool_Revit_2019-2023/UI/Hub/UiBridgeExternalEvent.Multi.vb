@@ -252,7 +252,10 @@ NextItem:
                 stepIndex += 1
                 ReportMultiProgress(CalcStepPercent(basePct, stepIndex, steps), "커넥터 진단 실행 중", safeName)
                 Dim extras = ParseExtraParams(_multiRequest.Common.ExtraParams)
-                Dim rows = ConnectorDiagnosticsService.RunOnDocument(doc, _multiRequest.Connector.Tol, _multiRequest.Connector.Unit, _multiRequest.Connector.Param, extras, _multiRequest.Common.TargetFilter, _multiRequest.Common.ExcludeEndDummy, Nothing)
+                Dim rows = ConnectorDiagnosticsService.RunOnDocument(doc, _multiRequest.Connector.Tol, _multiRequest.Connector.Unit, _multiRequest.Connector.Param, extras, _multiRequest.Common.TargetFilter, _multiRequest.Common.ExcludeEndDummy, Sub(pct, msg)
+                                                                                                                                                                                                      Dim overallPct = ((basePct + (pct / 100.0R) / Math.Max(_multiTotal, 1)) * 100.0R)
+                                                                                                                                                                                                      ReportMultiProgress(overallPct, "커넥터 진단 실행 중", $"{safeName} · {msg}")
+                                                                                                                                                                                                  End Sub)
                 If rows IsNot Nothing AndAlso rows.Count > 0 Then
                     For Each row In rows
                         If row IsNot Nothing Then row("File") = safeName
